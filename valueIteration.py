@@ -87,7 +87,7 @@ class Grid:
                     return False
 
         return True
-    
+
 class ValueIteration(Node):
     def __init__(self, map_frame_id=MAP_FRAME_ID, node_name=NODE_NAME, context=None):
         super().__init__(node_name, context=context)
@@ -140,83 +140,107 @@ class ValueIteration(Node):
         y = row * self.map.resolution + self.map_origin.position.y + self.map.resolution / 2
         return x, y
     
-    # get the states from the map --> each cell (r,c) is a state
+    # get block-based states (each state is a 5x5 block)
     def get_states(self):
         states = []
-        for r in range(self.map.height):
-            for c in range(self.map.width):
-                if self.map.is_valid(r, c):
-                    states.append((r, c))
+        block_size = 5
+        for block_r in range((self.map.height + block_size - 1) // block_size):
+            for block_c in range((self.map.width + block_size - 1) // block_size):
+                states.append((block_r, block_c))
         return states
 
-    # define rewards from the map   
+    # define rewards for block-based states
     def get_rewards(self, goal: Tuple[int, int]):
         rewards = {}
-        for r in range(self.map.height):
-            for c in range(self.map.width):
-                if (r, c) == goal:
-                    rewards[(r, c)] = 100  # Goal reward
-                elif not self.map.is_valid(r, c):
-                    rewards[(r, c)] = -100  # Obstacle penalty
+        block_size = 5
+        goal_block = (goal[0] // block_size, goal[1] // block_size)
+        for block_r in range((self.map.height + block_size - 1) // block_size):
+            for block_c in range((self.map.width + block_size - 1) // block_size):
+                # Check if any cell in the 5x5 block is invalid
+                is_block_valid = True
+                for r in range(block_r * block_size, min((block_r + 1) * block_size, self.map.height)):
+                    for c in range(block_c * block_size, min((block_c + 1) * block_size, self.map.width)):
+                        if not self.map.is_valid(r, c):
+                            is_block_valid = False
+                            break
+                    if not is_block_valid:
+                        break
+                # Assign rewards
+                if (block_r, block_c) == goal_block and is_block_valid:
+                    rewards[(block_r, block_c)] = 10  # Goal reward (only if block is valid)
+                elif not is_block_valid:
+                    rewards[(block_r, block_c)] = -100  # Penalty for blocks with walls
                 else:
-                    rewards[(r, c)] = -1  # Step cost
+                    rewards[(block_r, block_c)] = -0.1  # Step cost
         return rewards
     
-    # helps keep track of boundaries
+    # helps keep track of boundaries (unused)
     def next_state(self, state_idx, direction):
-        pos = np.argwhere(self.occupancy_grid == state_idx)[0] # learned what argwhere was so that is cool
+        pos = np.argwhere(self.occupancy_grid == state_idx)[0]
         delta = ACTIONS[direction]
         new_pos = pos + delta
         if 0 <= new_pos[0] < self.occupancy_grid.shape[0] and 0 <= new_pos[1] < self.occupancy_grid.shape[1]:
             return self.occupancy_grid[tuple(new_pos)]
         return state_idx  # stay in place if moving off the grid
 
-    def value_iteration(self, start: Tuple[int, int], goal: Tuple[int, int], discount_factor: float = 0.9, theta: float = 1.0):
+    def value_iteration(self, start: Tuple[int, int], goal: Tuple[int, int], discount_factor: float = 0.9, theta: float = 0.01):
         # Get states and rewards
+        block_size = 5
+        start_block = (start[0] // block_size, start[1] // block_size)
+        goal_block = (goal[0] // block_size, goal[1] // block_size)
         states = self.get_states()
         rewards = self.get_rewards(goal)
+
+        # Validate state space
+        if not states:
+            self.get_logger().error("No valid states found in the grid!")
+            return {}, {}
 
         # Initialize value function and policy
         V = {state: 0.0 for state in states}
         policy = {state: None for state in states}
-        running = True
-        
+
+        # Add iteration limit to prevent infinite loops
+        max_iterations = 1000
+        iteration = 0
+
         # Value iteration
-        while running:
-            print("in loop for value iteration...")
+        while True:
             delta = 0.0  # Tracks max change in value function
             for state in states:
-                if state == goal:  # Skip terminal state
+                if state == goal_block:  # Skip terminal state
+                    V[state] = rewards.get(state, 10)  # Ensure goal has fixed reward
                     continue
                 old_v = V[state]
                 action_values = {}
-                for action, move in ACTIONS.items():  # Use 'move' instead of 'delta' for action offset
+                for action, move in ACTIONS.items():
                     value = 0
                     for direction, prob in DIRECTION_PROBABILITIES[action]:
-                        # Compute next state
-                        next_row, next_col = state[0] + move[0], state[1] + move[1]
-                        next_state = (next_row, next_col)
-                        print(next_col, next_row)
+                        # Compute next block state
+                        next_block_r, next_block_c = state[0] + move[0], state[1] + move[1]
+                        next_state = (next_block_r, next_block_c)
                         # Check if next state is valid; if not, stay in place
-                        if (0 <= next_row < self.map.height and 
-                            0 <= next_col < self.map.width and 
-                            self.map.is_valid(next_row, next_col)):
+                        if (0 <= next_block_r < (self.map.height + block_size - 1) // block_size and 
+                            0 <= next_block_c < (self.map.width + block_size - 1) // block_size):
                             value += prob * (rewards.get(next_state, -100) + discount_factor * V.get(next_state, 0))
                         else:
                             value += prob * (rewards.get(state, -100) + discount_factor * V.get(state, 0))
-                            print(f"Invalid move to {next_state}, staying in place.")
                     action_values[action] = value
-                
                 # Update value and policy
                 V[state] = max(action_values.values())
                 policy[state] = max(action_values, key=action_values.get)
-                delta = max(delta, abs(old_v - V[state]))  # Update max change
-                if delta < theta:  # Convergence check
-                    running = False
-
-            print(f"Delta: {delta}", f"Value: {theta}")
-            if delta < theta:  # Convergence check
-                running = False
+                delta = max(delta, abs(old_v - V[state]))
+            
+            iteration += 1
+            self.get_logger().info(f"Iteration {iteration}: delta = {delta}")
+            
+            # Check convergence or max iterations
+            if delta < theta:
+                self.get_logger().info(f"Converged after {iteration} iterations with delta = {delta}")
+                break
+            if iteration >= max_iterations:
+                self.get_logger().warning(f"Stopped after {max_iterations} iterations without convergence (delta = {delta})")
+                break
 
         return V, policy
     
@@ -225,21 +249,20 @@ class ValueIteration(Node):
         start = (2, 2)
         goal = (2, 5)
         print("Starting Value Iteration...")
-        self.value_iteration(start, goal)
-        # Print the value function and policy
         V, policy = self.value_iteration(start, goal)
+        # Print the value function and policy
         print("Value Function:")
         for state, value in V.items():
-            print(f"State {state}: {value}")
+            print(f"Block {state}: {value}")
         print("\nPolicy:")
         for state, action in policy.items():
-            print(f"State {state}: {action}")
+            print(f"Block {state}: {action}")
 
 def main(args=None):
     rclpy.init(args=args)
     vi = ValueIteration()
     
-    # basically just wait to see if the map is received
+    # wait to see if the map is received
     while vi.occupancy_grid is None:
         rclpy.spin_once(vi)
     if vi.occupancy_grid is not None:
@@ -250,4 +273,3 @@ def main(args=None):
 
 if __name__ == "__main__":
     main()
-  
