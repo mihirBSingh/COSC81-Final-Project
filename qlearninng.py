@@ -4,7 +4,7 @@ import random
 # actions = [(0,0), (0,1), (1,0), (1,1)] 
 
 class Grid: 
-    def __init__(self, occupancy_grid_data, width, height, resolution, origin, start_state):
+    def __init__(self, occupancy_grid_data, width, height, resolution, origin, start_state, goal_state):
         self.grid = np.reshape(occupancy_grid_data, (height, width))
 
         self.resolution = resolution  # m/cell
@@ -14,6 +14,14 @@ class Grid:
 
         self.start_state = start_state  # (row, col)
         self.state = start_state
+        self.goal = goal_state
+
+        self.obstacles = set()
+        for row in range(self.height):
+            for col in range(self.width):
+                value = self.grid[row, col]
+                if value == 100: 
+                    self.obstacles.add((row, col))
 
     def reset(self):
         self.state = self.start_state
@@ -35,10 +43,25 @@ class Grid:
             next_state[1] = max(0, state[1] - 1)
         return tuple(next_state)
     
-    def compute_reward(self, prev_state, action):  # TODO: becs
+    def compute_reward(self, prev_state, action, type):  # TODO: becs
         # Obstacle or goal
-        # Manhattan distance
-        pass 
+        state = self.get_next_state(prev_state, action)
+        if  type == "obstacle":
+            if self.grid[state[0], state[1]] == 100:
+                reward = -10
+            elif state == self.goal:
+                reward = -100
+            else:
+                reward = 0
+
+        elif type == "manhattan":
+                # Manhattan distance to goal
+                prev_dist = abs(prev_state[0] - self.goal[0]) + abs(prev_state[1] - self.goal[1])
+                new_dist = abs(state[0] - self.goal[0]) + abs(state[1] - self.goal[1])
+                reward = prev_dist - new_dist
+                return reward
+
+        return reward 
     
     def step(self, action):
         next_state = self.get_next_state(self.state, action)
