@@ -19,8 +19,3 @@ git submodule status
 ```
 
 In Cursor/VSCode with the Git version control extension, a green "A" should appear next to the submodule, denoting a new submodule added to the index. After changes in the submodule, there should be a blue "S" denoting submodule having staged changes.
-
--------------------
-
-# mapping.py IS STILL A WORKING PROJECT 
-A README is pending...
