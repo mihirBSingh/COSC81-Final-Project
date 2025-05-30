@@ -63,9 +63,9 @@ class Grid:
 
         return reward 
     
-    def step(self, action):
+    def step(self, action, reward_type):
         next_state = self.get_next_state(self.state, action)
-        reward = self.compute_reward(self.state, action) # self.grid[next_state] (from medium article)
+        reward = self.compute_reward(self.state, action, reward_type) # self.grid[next_state] (from medium article)
         self.state = next_state
         done = self.is_terminal(next_state)
         return next_state, reward, done
@@ -82,7 +82,7 @@ class Grid:
 
 class QLearningAgent:
     def __init__(self, discount_rate=0.9, learning_rate=0.1, exploration_rate=0.1):
-        self.Q_table = np.zeros((4, 4, 4))  # x,y,q-value 
+        self.q_table = np.zeros((4, 4, 4))  # x,y,q-value 
 
         self.learning_rate = learning_rate
         self.discount_factor = discount_rate
@@ -102,8 +102,17 @@ class QLearningAgent:
             reward + self.discount_factor * max_future_q - current_q
         )
     
-    def train(self, num_episodes):
-        pass 
+    def train(self, num_episodes, grid, reward_type ="obstacle"):
+        for episode in num_episodes:
+            state = grid.reset()
+            done = False
+            while not done:
+                action = self.choose_action(state)
+                next_state, reward, done = grid.step(action, reward_type)
+                self.update_q_value(state, action, reward, next_state)
+                state = next_state
+
+         
 # Q-learning class:
     # TODO __init__(Q table, discount_rate, learning_rate) 
     # TODO Choose action(self, curr_state)
