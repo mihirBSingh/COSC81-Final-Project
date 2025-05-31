@@ -17,6 +17,7 @@ from rclpy.duration import Duration
 import tf2_ros
 from tf2_ros import TransformException
 import tf_transformations
+from rclpy.time import Time
 
 DEFAULT_CMD_VEL_TOPIC = '/cmd_vel'
 DEFAULT_SCAN_TOPIC = '/scan'
@@ -33,14 +34,118 @@ STEP = 0.5 # m
 LINEAR_VELOCITY = 0.2 # m/s
 ANGULAR_VELOCITY = math.pi/6 # rad/s
 
+class Mover(Node): 
+    def __init__(self, buffer, tf_listener, linear_velocity=LINEAR_VELOCITY, angular_velocity=ANGULAR_VELOCITY):
+        super().__init__('mover')
+        self.linear_velocity = linear_velocity
+        self.angular_velocity = angular_velocity
+        self.cmd_pub = self.create_publisher(Twist, DEFAULT_CMD_VEL_TOPIC, 1)
+        self.rate = self.create_rate(10)
+        self.tf_buffer = buffer
+        self.tf_listener = tf_listener
+
+    def get_transformation(self, start_frame, target_frame):
+            """Get transformation between two frames."""
+            print(f"   Getting transformation between {start_frame} and {target_frame}")
+            try:
+                while not self.tf_buffer.can_transform(target_frame, start_frame, self.get_clock().now()):
+                    print("waiting for transformation")
+                    rclpy.spin_once(self)
+                tf_msg = self.tf_buffer.lookup_transform(target_frame, start_frame, self.get_clock().now())
+            except TransformException as ex:
+                self.get_logger().info(
+                    f'Could not transform: {ex}')
+                return
+            # self.get_logger().info(f'Received tf message: {tf_msg}')   
+            translation = tf_msg.transform.translation
+            quaternion = tf_msg.transform.rotation
+
+            t = tf_transformations.translation_matrix([translation.x, translation.y, translation.z])
+            R = tf_transformations.quaternion_matrix([quaternion.x, quaternion.y, quaternion.z, quaternion.w])
+            T = t.dot(R)
+            T = np.round(T, decimals=1) # rounding minimizes noise 
+            print(f"   Transformation: {T}")
+            return T
+
+    def move(self, linear_vel, angular_vel):
+            """Send a velocity command (linear vel in m/s, angular vel in rad/s)."""
+            # Setting velocities.
+            twist_msg = Twist()
+
+            twist_msg.linear.x = linear_vel
+            twist_msg.angular.z = angular_vel
+            self.cmd_pub.publish(twist_msg)
+            rclpy.spin_once(self)  # Process the published command
+
+    # angles in radians
+    def rotate(self,angle):
+        print(f"   Rotating {angle} rad, {angle*180/math.pi} degrees")
+
+        secs = abs(angle) / self.angular_velocity
+        duration = Duration(seconds=secs)
+        start_time = self.get_clock().now()
+
+        # rotate for certain duration 
+        while rclpy.ok():
+            rclpy.spin_once(self)  # Process callbacks
+            # Check if the specified duration has elapsed.
+            if self.get_clock().now() - start_time >= duration:
+                break
+            # Publish the twist message continuously.
+            if angle > 0: 
+                self.move(0.0, self.angular_velocity)  # counterclockwise 
+            else: 
+                self.move(0.0, -self.angular_velocity)  # clockwise
+
+    # distance in m 
+    def translate(self,distance): 
+        print(f"   Moving forward {distance}m")
+        
+        secs = abs(distance) / self.linear_velocity
+        duration = Duration(seconds=secs)
+        start_time = self.get_clock().now()
+
+        # rotate for certain duration 
+        while rclpy.ok():
+            rclpy.spin_once(self)  # Process callbacks
+            # Check if the specified duration has elapsed.
+            if self.get_clock().now() - start_time >= duration:
+                break
+            # Publish the twist message continuously.
+            self.move(self.linear_velocity, 0.0)  
+    
+    def get_angle(self, y, x):
+        theta = math.atan2(y, x)
+        # edge cases for tan (multiples of π/2)
+        if x == 0:
+            if y > 0:
+                theta = math.pi/2
+            else:
+                theta = -math.pi/2
+        return theta 
+        
+    def get_distance(self,p):
+        return  math.sqrt((p[0])**2 + (p[1])**2)
+
+    def move_to_point(self,x, y):
+        print(f"   Moving to point: {x}, {y}")
+        odom_p = np.array([x, y, 0, 1])
+        bl_T2_odom = self.get_transformation(TF_ODOM, TF_BASE_LINK)
+        bl_p = bl_T2_odom.dot(odom_p.transpose())
+
+        theta = self.get_angle(bl_p[1], bl_p[0])
+        dist = self.get_distance(bl_p)
+
+        self.rotate(theta)
+        self.translate(dist)
 
 class GridMapper(Node):
-    def __init__(self, linear_velocity=LINEAR_VELOCITY, angular_velocity=ANGULAR_VELOCITY,pos_x=0.0, pos_y=0.0, pos_theta=0.0):
+    def __init__(self, pos_x=0.0, pos_y=0.0, pos_theta=0.0, initial_size=1000, goal=(999, 999), start_state=(0,0)):
 
         super().__init__('grid_mapper')
 
         self.res = 0.05  # m/cell
-        self.initial_size = 1000  # cells
+        self.initial_size = initial_size  # cells
         self.map = np.full((self.initial_size, self.initial_size), -1, dtype=np.int8)
         
         self.origin_x = -self.initial_size * self.res / 2.0
@@ -63,9 +168,9 @@ class GridMapper(Node):
         self.laser_sub = self.create_subscription(LaserScan, DEFAULT_SCAN_TOPIC, self.laser_callback, 10)
         
         # set up qlearning states and obstacles 
-        self.start_state = (0,0)  # (row, col)
+        self.start_state = start_state  # (row, col)
         self.state = self.start_state
-        self.goal = (self.width-1, self.height-1)
+        self.goal = goal
 
         self.obstacles = set()
         for row in range(self.height):
@@ -74,11 +179,7 @@ class GridMapper(Node):
                 if value == 100: 
                     self.obstacles.add((row, col))
 
-        # velocity publisher 
-        self._cmd_pub = self.create_publisher(Twist, DEFAULT_CMD_VEL_TOPIC, 1)
-
-        self.linear_velocity = linear_velocity # Constant linear velocity set.
-        self.angular_velocity = angular_velocity # Constant angular velocity set.
+        self.mover = Mover(self.tf_buffer, self.tf_listener) 
 
         print("Occupancy Grid Mapper initialized\n")
 
@@ -123,106 +224,10 @@ class GridMapper(Node):
         print(f"   Reward: {reward}")
         return reward 
     
-    def get_transformation(self, start_frame, target_frame):
-            print(f"   Getting transformation between {start_frame} and {target_frame}")
-            """Get transformation between two frames."""
-            try:
-                while not self.tf_buffer.can_transform(target_frame, start_frame, self.get_clock().now()):
-                    rclpy.spin_once(self)
-                tf_msg = self.tf_buffer.lookup_transform(target_frame, start_frame, self.get_clock().now())
-            except TransformException as ex:
-                self.get_logger().info(
-                    f'Could not transform: {ex}')
-                return
-            # self.get_logger().info(f'Received tf message: {tf_msg}')   
-            translation = tf_msg.transform.translation
-            quaternion = tf_msg.transform.rotation
-
-            t = tf_transformations.translation_matrix([translation.x, translation.y, translation.z])
-            R = tf_transformations.quaternion_matrix([quaternion.x, quaternion.y, quaternion.z, quaternion.w])
-            T = t.dot(R)
-            T = np.round(T, decimals=1) # rounding minimizes noise 
-            print(f"   Transformation: {T}")
-            return T
-
+    
     def execute_action(self, action):
         print(f"   Executing action: {action}")
-        def move(self, linear_vel, angular_vel):
-            """Send a velocity command (linear vel in m/s, angular vel in rad/s)."""
-            # Setting velocities.
-            twist_msg = Twist()
-
-            twist_msg.linear.x = linear_vel
-            twist_msg.angular.z = angular_vel
-            self._cmd_pub.publish(twist_msg)
-
-        # angles in radians
-        def rotate(self, angle):
-            print(f"   Rotating {angle} rad, {angle*180/math.pi} degrees")
-
-            secs = abs(angle) / self.angular_velocity
-            duration = Duration(seconds=secs)
-            start_time = self.get_clock().now()
-
-            # rotate for certain duration 
-            while rclpy.ok():
-                # print("rotating")
-                rclpy.spin_once(self)
-                # Log current time information.
-                
-                # Check if the specified duration has elapsed.
-                if self.get_clock().now() - start_time >= duration:
-                    break
-                # Publish the twist message continuously.
-                if angle > 0: 
-                    move(0.0, self.angular_velocity)  # counterclockwise 
-                else: 
-                    move(0.0, -self.angular_velocity)  # clockwise
-
-        # distance in m 
-        def translate(self, distance): 
-            print(f"   Moving forward {distance}m")
-            
-            secs = abs(distance) / self.linear_velocity
-            duration = Duration(seconds=secs)
-            start_time = self.get_clock().now()
-
-            # rotate for certain duration 
-            while rclpy.ok():
-                rclpy.spin_once(self)
-                # Log current time information.
-                
-                # Check if the specified duration has elapsed.
-                if self.get_clock().now() - start_time >= duration:
-                    break
-                # Publish the twist message continuously.
-                move(self.linear_velocity, 0.0)  
-    
-        def get_angle(self, y, x):
-            theta = math.atan2(y, x)
-
-            # edge cases for tan (multiples of π/2)
-            if x == 0:
-                if y > 0:
-                    theta = math.pi/2
-                else:
-                    theta = -math.pi/2
-
-            return theta 
         
-        def get_distance(p):
-            return  math.sqrt((p[0])**2 + (p[1])**2)
-
-        def move_to_point(x, y):
-            print(f"   Moving to point: {self.pos_x}, {self.pos_y}")
-            odom_p = np.array([x, y, 0, 1])
-            bl_T2_odom = self.get_transformation(TF_ODOM, TF_BASE_LINK)
-            bl_p = bl_T2_odom.dot(odom_p.transpose())
-            theta = get_angle(bl_p[1], bl_p[0])
-            dist = get_distance(bl_p)
-            rotate(theta)
-            translate(dist)
-
         if action == 0:  # Move up
             self.pos_y += STEP / self.res
         elif action == 1:  # Move right
@@ -232,7 +237,7 @@ class GridMapper(Node):
         elif action == 3:  # Move left
             self.pos_x -= STEP / self.res
 
-        move_to_point(self.pos_x, self.pos_y)
+        self.mover.move_to_point(self.pos_x, self.pos_y)
 
     def step(self, action, reward_type):
         print(f"   Stepping in grid")
@@ -241,6 +246,7 @@ class GridMapper(Node):
         self.state = next_state
         done = self.is_terminal(next_state)
         self.execute_action(action)
+        rclpy.spin_once(self)  # Process any callbacks after action execution
         return next_state, reward, done
 
     def get_curr_pose(self, msg):
@@ -337,8 +343,10 @@ class GridMapper(Node):
                     world_y = point_odom.point.y
                 except Exception as e:
                     self.get_logger().warn(f'Transform failed: {str(e)}')
+                    rclpy.spin_once(self)  # Process any pending callbacks
                     continue
             else:
+                rclpy.spin_once(self)  # Process any pending callbacks
                 continue
             
             end_x, end_y = self.world_to_grid(world_x, world_y) # export to grid
@@ -349,9 +357,9 @@ class GridMapper(Node):
             self.bresenham(grid_x, grid_y, end_x, end_y) # map update using Bresenham
         
         self.publish_map()
+        rclpy.spin_once(self)  # Process the published map
 
     def publish_map(self):
-
         map_publish_msg = OccupancyGrid()
 
         now = self.get_clock().now().to_msg()
@@ -368,16 +376,17 @@ class GridMapper(Node):
 
         map_publish_msg.data = self.map.flatten().tolist()
         self.map_pub.publish(map_publish_msg)
+        rclpy.spin_once(self)  # Process the published map
 
 def main(args=None):
     
     rclpy.init(args=args)
     node = GridMapper()
 
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
+    # try:
+    #     # rclpy.spin(node)
+    # except KeyboardInterrupt:
+    #     pass
     node.destroy_node()
     rclpy.shutdown()
 

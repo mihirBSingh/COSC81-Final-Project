@@ -19,7 +19,7 @@ class QLearningAgent:
         else:
             action = np.argmax(self.q_table[state])  # Exploit best action from qtable
         
-        movement = "UP" if action == 0 else "RIGHT" if action == 1 else "DONW" if action == 2 else "LEFT"
+        movement = "UP" if action == 0 else "RIGHT" if action == 1 else "DOWN" if action == 2 else "LEFT"
         print(f"      Chose action: {action} ({movement}) for state: {state}")
         return action
 
@@ -47,7 +47,10 @@ class QLearningAgent:
 
 def main(args=None):
     rclpy.init(args=args)
-    gm_node = GridMapper()
+
+    start_state = (0,0)
+    goal = (999, 999)
+    gm_node = GridMapper(goal=goal, start_state=start_state)
 
     # hyperparameters TODO: tune
     # discount_factor = 0.4
