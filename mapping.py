@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# mapper.py, building on top of pa4_mapping, used for Stage
+# mapping.py, building on top of pa4_mapping
 # Author: Scottie Yang
 # Date: May 20, 2025
 
