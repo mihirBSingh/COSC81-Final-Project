@@ -13,7 +13,10 @@ from geometry_msgs.msg import PointStamped
 from geometry_msgs.msg import Twist 
 import numpy as np
 import math
+from rclpy.duration import Duration
 import tf2_ros
+from tf2_ros import TransformException
+import tf_transformations
 
 DEFAULT_CMD_VEL_TOPIC = '/cmd_vel'
 DEFAULT_SCAN_TOPIC = '/scan'
@@ -25,9 +28,14 @@ TF_BASE_LINK = 'base_link'
 TF_ODOM = 'odom'
 
 LASER_ROBOT_OFFSET = -math.pi
+STEP = 0.5 # m 
+
+LINEAR_VELOCITY = 0.2 # m/s
+ANGULAR_VELOCITY = math.pi/6 # rad/s
+
 
 class GridMapper(Node):
-    def __init__(self):
+    def __init__(self, linear_velocity=LINEAR_VELOCITY, angular_velocity=ANGULAR_VELOCITY,pos_x=0.0, pos_y=0.0, pos_theta=0.0):
 
         super().__init__('grid_mapper')
 
@@ -39,9 +47,9 @@ class GridMapper(Node):
         self.origin_y = -self.initial_size * self.res / 2.0
         self.width = self.initial_size
         self.height = self.initial_size
-        self.pos_x = 0.0
-        self.pos_y = 0.0
-        self.pos_theta = 0.0
+        self.pos_x = pos_x
+        self.pos_y = pos_y
+        self.pos_theta = pos_theta
         self.has_pose = True
         
         # set up TF2 buffer and listener
@@ -54,7 +62,186 @@ class GridMapper(Node):
         self.map_pub = self.create_publisher(OccupancyGrid, DEFAULT_MAP_TOPIC, 10)
         self.laser_sub = self.create_subscription(LaserScan, DEFAULT_SCAN_TOPIC, self.laser_callback, 10)
         
-        print("OG Mapper initialized.")
+        # set up qlearning states and obstacles 
+        self.start_state = (0,0)  # (row, col)
+        self.state = self.start_state
+        self.goal = (self.width-1, self.height-1)
+
+        self.obstacles = set()
+        for row in range(self.height):
+            for col in range(self.width):
+                value = self.map[row, col]
+                if value == 100: 
+                    self.obstacles.add((row, col))
+
+        # velocity publisher 
+        self._cmd_pub = self.create_publisher(Twist, DEFAULT_CMD_VEL_TOPIC, 1)
+
+        self.linear_velocity = linear_velocity # Constant linear velocity set.
+        self.angular_velocity = angular_velocity # Constant angular velocity set.
+
+        print("Occupancy Grid Mapper initialized\n")
+
+    def reset(self):
+        self.state = self.start_state
+        return self.state
+
+    def is_terminal(self, state):
+        return state in self.obstacles or state == self.goal
+    
+    def get_next_state(self, state, action):
+        step_px = STEP / self.res 
+        next_state = list(state)
+        if action == 0:  # Move up
+            next_state[1] = int(state[0] + step_px)
+        elif action == 1:  # Move right
+            next_state[0] = int(state[1] + step_px)
+        elif action == 2:  # Move down
+            next_state[1] = int(state[0] - step_px)
+        elif action == 3:  # Move left
+            next_state[0] = int(state[1] - step_px)
+        return tuple(next_state)
+    
+    def compute_reward(self, prev_state, action, type):  
+        # Obstacle or goal
+        state = self.get_next_state(prev_state, action)
+        print(f"   Next state (px): {state}")
+        if  type == "obstacle":
+            if self.map[state[0], state[1]] == 100:
+                reward = -10
+            elif state == self.goal:
+                reward = -100
+            else:
+                reward = 0
+
+        elif type == "manhattan":
+                # Manhattan distance to goal
+                prev_dist = abs(prev_state[0] - self.goal[0]) + abs(prev_state[1] - self.goal[1])
+                new_dist = abs(state[0] - self.goal[0]) + abs(state[1] - self.goal[1])
+                reward = prev_dist - new_dist
+                return reward
+        print(f"   Reward: {reward}")
+        return reward 
+    
+    def get_transformation(self, start_frame, target_frame):
+            print(f"   Getting transformation between {start_frame} and {target_frame}")
+            """Get transformation between two frames."""
+            try:
+                while not self.tf_buffer.can_transform(target_frame, start_frame, self.get_clock().now()):
+                    rclpy.spin_once(self)
+                tf_msg = self.tf_buffer.lookup_transform(target_frame, start_frame, self.get_clock().now())
+            except TransformException as ex:
+                self.get_logger().info(
+                    f'Could not transform: {ex}')
+                return
+            # self.get_logger().info(f'Received tf message: {tf_msg}')   
+            translation = tf_msg.transform.translation
+            quaternion = tf_msg.transform.rotation
+
+            t = tf_transformations.translation_matrix([translation.x, translation.y, translation.z])
+            R = tf_transformations.quaternion_matrix([quaternion.x, quaternion.y, quaternion.z, quaternion.w])
+            T = t.dot(R)
+            T = np.round(T, decimals=1) # rounding minimizes noise 
+            print(f"   Transformation: {T}")
+            return T
+
+    def execute_action(self, action):
+        print(f"   Executing action: {action}")
+        def move(self, linear_vel, angular_vel):
+            """Send a velocity command (linear vel in m/s, angular vel in rad/s)."""
+            # Setting velocities.
+            twist_msg = Twist()
+
+            twist_msg.linear.x = linear_vel
+            twist_msg.angular.z = angular_vel
+            self._cmd_pub.publish(twist_msg)
+
+        # angles in radians
+        def rotate(self, angle):
+            print(f"   Rotating {angle} rad, {angle*180/math.pi} degrees")
+
+            secs = abs(angle) / self.angular_velocity
+            duration = Duration(seconds=secs)
+            start_time = self.get_clock().now()
+
+            # rotate for certain duration 
+            while rclpy.ok():
+                # print("rotating")
+                rclpy.spin_once(self)
+                # Log current time information.
+                
+                # Check if the specified duration has elapsed.
+                if self.get_clock().now() - start_time >= duration:
+                    break
+                # Publish the twist message continuously.
+                if angle > 0: 
+                    move(0.0, self.angular_velocity)  # counterclockwise 
+                else: 
+                    move(0.0, -self.angular_velocity)  # clockwise
+
+        # distance in m 
+        def translate(self, distance): 
+            print(f"   Moving forward {distance}m")
+            
+            secs = abs(distance) / self.linear_velocity
+            duration = Duration(seconds=secs)
+            start_time = self.get_clock().now()
+
+            # rotate for certain duration 
+            while rclpy.ok():
+                rclpy.spin_once(self)
+                # Log current time information.
+                
+                # Check if the specified duration has elapsed.
+                if self.get_clock().now() - start_time >= duration:
+                    break
+                # Publish the twist message continuously.
+                move(self.linear_velocity, 0.0)  
+    
+        def get_angle(self, y, x):
+            theta = math.atan2(y, x)
+
+            # edge cases for tan (multiples of π/2)
+            if x == 0:
+                if y > 0:
+                    theta = math.pi/2
+                else:
+                    theta = -math.pi/2
+
+            return theta 
+        
+        def get_distance(p):
+            return  math.sqrt((p[0])**2 + (p[1])**2)
+
+        def move_to_point(x, y):
+            print(f"   Moving to point: {self.pos_x}, {self.pos_y}")
+            odom_p = np.array([x, y, 0, 1])
+            bl_T2_odom = self.get_transformation(TF_ODOM, TF_BASE_LINK)
+            bl_p = bl_T2_odom.dot(odom_p.transpose())
+            theta = get_angle(bl_p[1], bl_p[0])
+            dist = get_distance(bl_p)
+            rotate(theta)
+            translate(dist)
+
+        if action == 0:  # Move up
+            self.pos_y += STEP / self.res
+        elif action == 1:  # Move right
+            self.pos_x += STEP / self.res
+        elif action == 2:  # Move down
+            self.pos_y -= STEP / self.res
+        elif action == 3:  # Move left
+            self.pos_x -= STEP / self.res
+
+        move_to_point(self.pos_x, self.pos_y)
+
+    def step(self, action, reward_type):
+        print(f"   Stepping in grid")
+        next_state = self.get_next_state(self.state, action)
+        reward = self.compute_reward(self.state, action, reward_type) 
+        self.state = next_state
+        done = self.is_terminal(next_state)
+        self.execute_action(action)
+        return next_state, reward, done
 
     def get_curr_pose(self, msg):
 
@@ -94,7 +281,6 @@ class GridMapper(Node):
                 y0 += sy
 
     def expand_map(self, target_x, target_y):
-        
         self.get_logger().info("Expanding map...")
         width_new = self.width * 2
         height_new = self.height * 2
