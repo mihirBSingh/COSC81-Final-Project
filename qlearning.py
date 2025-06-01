@@ -36,12 +36,26 @@ class QLearningAgent:
             reward + self.discount_factor * max_future_q - current_q
         )
     
-    def expand_qtable(self, new_size): ## TODO copy from expand_map
-        new_q_table = np.zeros((new_size, new_size, 4))
-        new_q_table[:self.q_table.shape[0], :self.q_table.shape[1], :] = self.q_table
+    def expand_qtable(self):
+        current_size = self.q_table.shape[0]
+        expansion_size = 10
+
+        # create new qtable with expanded size 
+        new_q_table = np.zeros((current_size+expansion_size, current_size+expansion_size, 4))
+        
+        # offset origin by half of expansion size 
+        self.origin_x = round(self.origin_x + expansion_size/2)
+        self.origin_y = round(self.origin_y + expansion_size/2)
+        
+        # copy old qtable to new qtable 
+        new_q_table[expansion_size/2:self.q_table.shape[0], expansion_size/2:self.q_table.shape[1], :] = self.q_table
         self.q_table = new_q_table
-        print(f"Q-table expanded to shape: {self.q_table.shape}")
+
+        print(f"Q-table expanded to shape: {self.q_table.shape} and origin: {self.origin_x}, {self.origin_y}")
     
+    def in_bounds(self, state):
+        return 0 <= state[0] < self.q_table.shape[0] and 0 <= state[1] < self.q_table.shape[1]
+
     def train(self, num_episodes, grid, reward_type ="obstacle"):
         print(f"Training for {num_episodes} episodes...")
         for _ in range(num_episodes):
@@ -52,11 +66,14 @@ class QLearningAgent:
             while not done:
                 action = self.choose_action(state)
                 next_state, reward, done = grid.step(action, reward_type)
+                
                 next_state_offset = (next_state[0] + self.origin_x, next_state[1] + self.origin_y)  # offset by origin 
+                if not self.in_bounds(next_state_offset):
+                    self.expand_qtable()
+                
                 self.update_q_value(state_offset, action, reward, next_state_offset)
                 state = next_state
                 print(f" --- State (px): {state} --- ")
-            self.expand_qtable(grid.size)
 
 def main(args=None):
     rclpy.init(args=args)
