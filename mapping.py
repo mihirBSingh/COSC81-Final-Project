@@ -54,13 +54,13 @@ class Mover(Node):
         )
         self.set_parameters([use_sim_time_param])
         
-    def get_transformation(self, start_frame, target_frame, time=Time()):
+    def get_transformation(self, target_frame, start_frame, time=Time()):
             """Get transformation between two frames."""
             # print(f"   Getting transformation from {start_frame} --> {target_frame}")
             try:
-                while not self.tf_buffer.can_transform(target_frame, start_frame, Time()): 
+                while not self.tf_buffer.can_transform(target_frame, start_frame, time): 
                     rclpy.spin_once(self)
-                tf_msg = self.tf_buffer.lookup_transform(target_frame, start_frame, Time())
+                tf_msg = self.tf_buffer.lookup_transform(target_frame, start_frame, time)
             except TransformException as ex:
                 self.get_logger().info(
                     f'Could not transform: {ex}')
@@ -139,7 +139,7 @@ class Mover(Node):
     def move_to_point(self,x,y):
         print(f"           Moving to point: {x}, {y}")
         odom_p = np.array([x, y, 0, 1])
-        bl_T2_odom = self.get_transformation(TF_ODOM, TF_BASE_LINK)
+        bl_T2_odom = self.get_transformation(TF_BASE_LINK, TF_ODOM)
         bl_p = bl_T2_odom.dot(odom_p.transpose())
         # print(f"           bl_T2_odom: {bl_T2_odom}")
         # print(f"           Base link point: {bl_p}")
@@ -331,7 +331,6 @@ class GridMapper(Node):
             self.expand_map(grid_x, grid_y) 
             grid_x, grid_y = self.world_to_grid(self.pos_x, self.pos_y)
         
-        printed = False
         for i, range in enumerate(msg.ranges): # laser scan angle
             if not (msg.range_min <= range <= msg.range_max):
                 continue
@@ -344,16 +343,21 @@ class GridMapper(Node):
             laser_point.point.x = range * math.cos(angle)
             laser_point.point.y = range * math.sin(angle)
             
-            try:
-                transform = self.tf_buffer.lookup_transform(TF_ODOM, msg.header.frame_id, msg.header.stamp) #msg.header.stamp
-                point_odom = do_transform_point(laser_point, transform)
-                world_x = point_odom.point.x
-                world_y = point_odom.point.y
-            except Exception as e:
-                if not printed: 
-                    self.get_logger().warn(f'Transform failed: {str(e)}')
-                    printed = True
-                continue
+            transform = self.mover.get_transformation(TF_ODOM, msg.header.frame_id, msg.header.stamp) 
+            world = transform.dot(np.array([laser_point.point.x, laser_point.point.y, 0, 1]).T)
+            world_x = world[0]
+            world_y = world[1]
+
+            # try:
+            #     transform = self.tf_buffer.lookup_transform(TF_ODOM, msg.header.frame_id, msg.header.stamp) 
+            #     point_odom = do_transform_point(laser_point, transform)
+            #     world_x = point_odom.point.x
+            #     world_y = point_odom.point.y
+            # except Exception as e:
+            #     if not printed: 
+            #         self.get_logger().warn(f'Transform failed: {str(e)}')
+            #         printed = True
+            #     continue
             
             end_x, end_y = self.world_to_grid(world_x, world_y) # export to grid
             print(f"        [end_x, end_y]: {end_x}, {end_y}")
