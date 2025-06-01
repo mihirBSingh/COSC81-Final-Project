@@ -34,6 +34,8 @@ STEP = 1 # m
 LINEAR_VELOCITY = 0.2 # m/s
 ANGULAR_VELOCITY = math.pi/6 # rad/s
 
+USE_SIM_TIME = True 
+
 class Mover(Node): 
     def __init__(self, linear_velocity=LINEAR_VELOCITY, angular_velocity=ANGULAR_VELOCITY):
         super().__init__('mover')
@@ -43,6 +45,14 @@ class Mover(Node):
         self.rate = self.create_rate(10)
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+
+        # Workaround not to use roslaunch
+        use_sim_time_param = rclpy.parameter.Parameter(
+            'use_sim_time',
+            rclpy.Parameter.Type.BOOL,
+            USE_SIM_TIME
+        )
+        self.set_parameters([use_sim_time_param])
         
     def get_transformation(self, start_frame, target_frame):
             """Get transformation between two frames."""
@@ -75,7 +85,6 @@ class Mover(Node):
             twist_msg.linear.x = linear_vel
             twist_msg.angular.z = angular_vel
             self.cmd_pub.publish(twist_msg)
-            # rclpy.spin_once(self)  # Process the published command
 
     # angles in radians
     def rotate(self,angle):
@@ -92,10 +101,10 @@ class Mover(Node):
             if self.get_clock().now() - start_time >= duration:
                 break
             # Publish the twist message continuously.
-            # if angle > 0: 
-            #     self.move(0.0, self.angular_velocity)  # counterclockwise 
-            # else: 
-            #     self.move(0.0, -self.angular_velocity)  # clockwise
+            if angle > 0: 
+                self.move(0.0, self.angular_velocity)  # counterclockwise 
+            else: 
+                self.move(0.0, -self.angular_velocity)  # clockwise
 
     # distance in m 
     def translate(self,distance): 
@@ -112,7 +121,7 @@ class Mover(Node):
             if self.get_clock().now() - start_time >= duration:
                 break
             # Publish the twist message continuously.
-            # self.move(self.linear_velocity, 0.0)  
+            self.move(self.linear_velocity, 0.0)  
     
     def get_angle(self, y, x):
         theta = math.atan2(y, x)
@@ -130,8 +139,10 @@ class Mover(Node):
     def move_to_point(self,x,y):
         print(f"           Moving to point: {x}, {y}")
         odom_p = np.array([x, y, 0, 1])
-        bl_T2_odom = self.get_transformation(TF_BASE_LINK, TF_ODOM)
+        bl_T2_odom = self.get_transformation(TF_ODOM, TF_BASE_LINK)
         bl_p = bl_T2_odom.dot(odom_p.transpose())
+        # print(f"           bl_T2_odom: {bl_T2_odom}")
+        # print(f"           Base link point: {bl_p}")
 
         theta = self.get_angle(bl_p[1], bl_p[0])
         dist = self.get_distance(bl_p)
@@ -140,10 +151,10 @@ class Mover(Node):
         self.translate(dist)
 
 class GridMapper(Node):
-    def __init__(self, pos_x=0.0, pos_y=0.0, pos_theta=0.0, initial_size=1000, goal=(999, 999)):
+    def __init__(self, pos_x=0.0, pos_y=0.0, pos_theta=0.0, initial_size=100, goal=(999, 999), res=0.05):
         super().__init__('grid_mapper')
 
-        self.res = 0.05  # m/cell
+        self.res = res  # m/cell
         self.initial_size = initial_size  # cells
         self.map = np.full((self.initial_size, self.initial_size), -1, dtype=np.int8)
         
@@ -173,7 +184,7 @@ class GridMapper(Node):
         self.state = self.start_state
         self.goal = goal
 
-        self.obstacles = set()
+        self.obstacles = set()  # TODO: detect obstacles in nearby cells
         for row in range(self.height):
             for col in range(self.width):
                 value = self.map[row, col]
@@ -182,12 +193,12 @@ class GridMapper(Node):
 
         self.mover = Mover() 
 
-        print("Occupancy Grid Mapper initialized\n")
+        print(f"Occupancy Grid Mapper initialized with shape: {self.map.shape} and origin: {self.origin_x}, {self.origin_y}\n")
 
     def reset(self):
         self.state = self.start_state
 
-        # TODO move robot back to start 
+        # TODO move robot back to start with pathfinding 
 
         return self.state
 
@@ -283,7 +294,7 @@ class GridMapper(Node):
                 err += dx
                 y0 += sy
 
-    def expand_map(self, target_x, target_y):
+    def expand_map(self, target_x, target_y):  # TODO broken
         self.get_logger().info("Expanding map...")
         width_new = self.width * 2
         height_new = self.height * 2
@@ -310,6 +321,7 @@ class GridMapper(Node):
         self.get_logger().info(f'Map expanded to {self.width}x{self.height}, origin: ({self.origin_x}, {self.origin_y})')
 
     def laser_callback(self, msg):
+        print(f"---> ---> [Laser callback] <--- <---")
         if not self.has_pose: 
             return 
         
