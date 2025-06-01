@@ -198,7 +198,7 @@ class GridMapper(Node):
     def reset(self):
         self.state = self.start_state
 
-        # TODO move robot back to start with pathfinding 
+        # TODO move robot back to start with pathfinding using pa3 planning
 
         return self.state
 
@@ -275,6 +275,7 @@ class GridMapper(Node):
         return 0 <= x < self.width and 0 <= y < self.height
 
     def bresenham(self, x0, y0, x1, y1): # refactored Bresenham from lec
+        print(f"        [Bresenham]")
         dx, dy = abs(x1 - x0), abs(y1 - y0)
         sx, sy = (1 if x0 < x1 else -1), (1 if y0 < y1 else -1)
         err = dx - dy
@@ -331,7 +332,6 @@ class GridMapper(Node):
             grid_x, grid_y = self.world_to_grid(self.pos_x, self.pos_y)
         
         for i, range in enumerate(msg.ranges): # laser scan angle
-
             if not (msg.range_min <= range <= msg.range_max):
                 continue
         
@@ -343,6 +343,7 @@ class GridMapper(Node):
             laser_point.point.x = range * math.cos(angle)
             laser_point.point.y = range * math.sin(angle)
             
+            # transform = self.mover.get_transformation('odom', msg.header.frame_id) 
             if self.tf_buffer.can_transform('odom', msg.header.frame_id, msg.header.stamp): # transform to odom
                 try:
                     transform = self.tf_buffer.lookup_transform(TF_ODOM, msg.header.frame_id, msg.header.stamp) #msg.header.stamp
@@ -353,15 +354,16 @@ class GridMapper(Node):
                     self.get_logger().warn(f'Transform failed: {str(e)}')
                     continue
             else:
+                print(f"        [Transform failed]")
                 continue
             
             end_x, end_y = self.world_to_grid(world_x, world_y) # export to grid
+            print(f"        [end_x, end_y]: {end_x}, {end_y}")
             if not self.valid_cell(end_x, end_y):
                 self.expand_map(end_x, end_y)
                 end_x, end_y = self.world_to_grid(world_x, world_y)
-
             self.bresenham(grid_x, grid_y, end_x, end_y) # map update using Bresenham
-        
+        print(f"        [Laser callback complete]")
         self.publish_map()
 
     def publish_map(self):
