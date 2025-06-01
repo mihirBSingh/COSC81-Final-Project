@@ -151,7 +151,7 @@ class Mover(Node):
         self.translate(dist)
 
 class GridMapper(Node):
-    def __init__(self, pos_x=0.0, pos_y=0.0, pos_theta=0.0, initial_size=100, goal=(999, 999), res=0.05):
+    def __init__(self, pos_x=0.0, pos_y=0.0, pos_theta=0.0, initial_size=1000, goal=(999, 999), res=0.05):
         super().__init__('grid_mapper')
 
         self.res = res  # m/cell
@@ -331,6 +331,7 @@ class GridMapper(Node):
             self.expand_map(grid_x, grid_y) 
             grid_x, grid_y = self.world_to_grid(self.pos_x, self.pos_y)
         
+        printed = False
         for i, range in enumerate(msg.ranges): # laser scan angle
             if not (msg.range_min <= range <= msg.range_max):
                 continue
@@ -343,18 +344,15 @@ class GridMapper(Node):
             laser_point.point.x = range * math.cos(angle)
             laser_point.point.y = range * math.sin(angle)
             
-            # transform = self.mover.get_transformation('odom', msg.header.frame_id) 
-            if self.tf_buffer.can_transform('odom', msg.header.frame_id, msg.header.stamp): # transform to odom
-                try:
-                    transform = self.tf_buffer.lookup_transform(TF_ODOM, msg.header.frame_id, msg.header.stamp) #msg.header.stamp
-                    point_odom = do_transform_point(laser_point, transform)
-                    world_x = point_odom.point.x
-                    world_y = point_odom.point.y
-                except Exception as e:
+            try:
+                transform = self.tf_buffer.lookup_transform(TF_ODOM, msg.header.frame_id, msg.header.stamp) #msg.header.stamp
+                point_odom = do_transform_point(laser_point, transform)
+                world_x = point_odom.point.x
+                world_y = point_odom.point.y
+            except Exception as e:
+                if not printed: 
                     self.get_logger().warn(f'Transform failed: {str(e)}')
-                    continue
-            else:
-                print(f"        [Transform failed]")
+                    printed = True
                 continue
             
             end_x, end_y = self.world_to_grid(world_x, world_y) # export to grid
@@ -371,7 +369,7 @@ class GridMapper(Node):
 
         now = self.get_clock().now().to_msg()
         map_publish_msg.header.stamp = now
-        map_publish_msg.header.frame_id = 'map'
+        map_publish_msg.header.frame_id = TF_ODOM
 
         map_publish_msg.info.resolution = self.res
         map_publish_msg.info.width = self.width
