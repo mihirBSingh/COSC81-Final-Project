@@ -54,7 +54,7 @@ class Mover(Node):
         )
         self.set_parameters([use_sim_time_param])
         
-    def get_transformation(self, start_frame, target_frame):
+    def get_transformation(self, start_frame, target_frame, time=Time()):
             """Get transformation between two frames."""
             # print(f"   Getting transformation from {start_frame} --> {target_frame}")
             try:
@@ -361,7 +361,7 @@ class GridMapper(Node):
                 self.expand_map(end_x, end_y)
                 end_x, end_y = self.world_to_grid(world_x, world_y)
             self.bresenham(grid_x, grid_y, end_x, end_y) # map update using Bresenham
-        print(f"        [Laser callback complete]")
+        print(f"---> ---> [Laser callback complete] <--- <---")
         self.publish_map()
 
     def publish_map(self):
