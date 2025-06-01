@@ -4,14 +4,14 @@ import rclpy
 from mapping import GridMapper
 
 class QLearningAgent:
-    def __init__(self, discount_rate=0.9, learning_rate=0.1, exploration_rate=0.1):
-        self.q_table = np.zeros((4,4,4))  # x,y,q-value 
+    def __init__(self, discount_rate=0.9, learning_rate=0.1, exploration_rate=0.1, initial_size=1000):
+        self.q_table = np.zeros((initial_size, initial_size, 4))  # x,y,q-value 
 
         self.learning_rate = learning_rate
         self.discount_factor = discount_rate
         self.exploration_rate = exploration_rate 
 
-        print(f"Q-table initialized with shape: {self.q_table.shape}")
+        print(f"Q-table initialized with shape: {self.q_table.shape}\n")
 
     def choose_action(self, state):
         if random.uniform(0, 1) < self.exploration_rate:
@@ -32,41 +32,53 @@ class QLearningAgent:
             reward + self.discount_factor * max_future_q - current_q
         )
     
+    def expand_qtable(self, new_size): ## TODO copy from expand_map
+        new_q_table = np.zeros((new_size, new_size, 4))
+        new_q_table[:self.q_table.shape[0], :self.q_table.shape[1], :] = self.q_table
+        self.q_table = new_q_table
+        print(f"Q-table expanded to shape: {self.q_table.shape}")
+    
     def train(self, num_episodes, grid, reward_type ="obstacle"):
         print(f"Training for {num_episodes} episodes...")
         for _ in range(num_episodes):
             state = grid.reset()
             done = False
-            print(f"   Starting episode with state: {state}")
+            print(f" --- State (px): {state} --- ")
             while not done:
                 action = self.choose_action(state)
                 next_state, reward, done = grid.step(action, reward_type)
                 self.update_q_value(state, action, reward, next_state)
                 state = next_state
-                print(f"   Updated state: {state}")
+                print(f" --- State: {state} --- ")
+            self.expand_qtable(grid.size)
 
 def main(args=None):
     rclpy.init(args=args)
+    
+    initial_size = 1000 
 
-    start_state = (0,0)
-    goal = (999, 999)
-    gm_node = GridMapper(goal=goal, start_state=start_state)
+    # odom px
+    startx = 0 
+    starty = 0 
+    goal = (initial_size-1, initial_size-1)
+
+    gm_node = GridMapper(goal=goal, pos_x=startx, pos_y=starty, initial_size=initial_size)
 
     # hyperparameters TODO: tune
     # discount_factor = 0.4
     # learning_rate = 0.1 
     # exploration_rate = 0.1
 
-    q = QLearningAgent()
+    q = QLearningAgent(initial_size=initial_size)
 
     q.train(100, gm_node)
 
-    try:
-        rclpy.spin(gm_node)
-    except KeyboardInterrupt:
-        pass
-    gm_node.destroy_node()
-    rclpy.shutdown()
+    # try:
+    #     rclpy.spin(gm_node)
+    # except KeyboardInterrupt:
+    #     pass
+    # gm_node.destroy_node()
+    # rclpy.shutdown()
 
 if __name__ == '__main__':
     main()
