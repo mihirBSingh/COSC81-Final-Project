@@ -29,7 +29,7 @@ TF_BASE_LINK = 'base_link'
 TF_ODOM = 'odom'
 
 LASER_ROBOT_OFFSET = -math.pi
-STEP = 0.5 # m 
+STEP = 1 # m 
 
 LINEAR_VELOCITY = 0.2 # m/s
 ANGULAR_VELOCITY = math.pi/6 # rad/s
@@ -127,7 +127,7 @@ class Mover(Node):
     def get_distance(self,p):
         return  math.sqrt((p[0])**2 + (p[1])**2)
 
-    def move_to_point(self,x, y):
+    def move_to_point(self,x,y):
         print(f"           Moving to point: {x}, {y}")
         odom_p = np.array([x, y, 0, 1])
         bl_T2_odom = self.get_transformation(TF_BASE_LINK, TF_ODOM)
@@ -141,7 +141,6 @@ class Mover(Node):
 
 class GridMapper(Node):
     def __init__(self, pos_x=0.0, pos_y=0.0, pos_theta=0.0, initial_size=1000, goal=(999, 999)):
-
         super().__init__('grid_mapper')
 
         self.res = 0.05  # m/cell
@@ -153,8 +152,8 @@ class GridMapper(Node):
         self.width = self.initial_size
         self.height = self.initial_size
         
-        self.pos_x = pos_x
-        self.pos_y = pos_y
+        self.pos_x = pos_x # m
+        self.pos_y = pos_y # m
         self.pos_theta = pos_theta
 
         self.has_pose = True
@@ -170,7 +169,7 @@ class GridMapper(Node):
         self.laser_sub = self.create_subscription(LaserScan, DEFAULT_SCAN_TOPIC, self.laser_callback, 10)
         
         # set up qlearning states and obstacles 
-        self.start_state = (pos_y, pos_x)  
+        self.start_state = (pos_x, pos_y)   
         self.state = self.start_state
         self.goal = goal
 
@@ -187,29 +186,32 @@ class GridMapper(Node):
 
     def reset(self):
         self.state = self.start_state
+
+        # TODO move robot back to start 
+
         return self.state
 
     def is_terminal(self, state):
         return state in self.obstacles or state == self.goal
     
-    def get_next_state(self, state, action):  # px 
-        step_px = STEP / self.res 
+    def get_next_state(self, state, action):  # m
         next_state = list(state)
-        if action == 0:  # Move up
-            next_state[1] = int(state[0] + step_px)
+        
+        if action == 0:  # Move up rel to odom 
+            next_state[1] += STEP
         elif action == 1:  # Move right
-            next_state[0] = int(state[1] + step_px)
+            next_state[0] += STEP
         elif action == 2:  # Move down
-            next_state[1] = int(state[0] - step_px)
+            next_state[1] -= STEP
         elif action == 3:  # Move left
-            next_state[0] = int(state[1] - step_px)
+            next_state[0] -= STEP
         
         return tuple(next_state)
     
     def compute_reward(self, prev_state, action, type):  
         # Obstacle or goal
-        state = self.get_next_state(prev_state, action)
-        print(f"        Next state (px): {state}, (grid): {state[0] * self.res}, {state[1] * self.res}")
+        state_world = self.get_next_state(prev_state, action)  # m 
+        state = self.world_to_grid(state_world[0], state_world[1])  # px
         if  type == "obstacle":
             if self.map[state[0], state[1]] == 100:
                 reward = -10
@@ -227,26 +229,19 @@ class GridMapper(Node):
         print(f"        Reward: {reward}")
         return reward 
     
-    
     def execute_action(self, action):
         print(f"        [Executing action]")
-        
-        if action == 0:  # Move up
-            self.pos_y += STEP 
-        elif action == 1:  # Move right
-            self.pos_x += STEP 
-        elif action == 2:  # Move down
-            self.pos_y -= STEP 
-        elif action == 3:  # Move left
-            self.pos_x -= STEP 
-
         self.mover.move_to_point(self.pos_x, self.pos_y)
 
     def step(self, action, reward_type):
         print(f"      [Stepping in grid]")
-        next_state = self.get_next_state(self.state, action)
+        next_state = self.get_next_state(self.state, action)  # m 
+        state_px = self.world_to_grid(next_state[0], next_state[1])  # px
+        print(f"        Next state (px): {state_px}, (m): {next_state[0]}, {next_state[1]}")
+        
         reward = self.compute_reward(self.state, action, reward_type) 
         self.state = next_state
+        self.pos_x, self.pos_y = next_state
         done = self.is_terminal(next_state)
         self.execute_action(action)
         rclpy.spin_once(self)  # Process any callbacks after action execution
@@ -379,12 +374,12 @@ def main(args=None):
     rclpy.init(args=args)
     node = GridMapper()
 
-    # try:
-    #     rclpy.spin(node)
-    # except KeyboardInterrupt:
-    #     pass
-    # node.destroy_node()
-    # rclpy.shutdown()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    node.destroy_node()
+    rclpy.shutdown()
 
 if __name__ == '__main__':
     main()

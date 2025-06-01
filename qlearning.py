@@ -47,9 +47,10 @@ class QLearningAgent:
             while not done:
                 action = self.choose_action(state)
                 next_state, reward, done = grid.step(action, reward_type)
+                next_state = (next_state[0], next_state[1])
                 self.update_q_value(state, action, reward, next_state)
                 state = next_state
-                print(f" --- State: {state} --- ")
+                print(f" --- State (px): {state} --- ")
             self.expand_qtable(grid.size)
 
 def main(args=None):
