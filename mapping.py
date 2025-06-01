@@ -19,6 +19,8 @@ from tf2_ros import TransformException
 import tf_transformations
 from rclpy.time import Time
 
+# from planning import Plan, Execute
+
 DEFAULT_CMD_VEL_TOPIC = '/cmd_vel'
 DEFAULT_SCAN_TOPIC = '/scan'
 
@@ -44,7 +46,7 @@ class Mover(Node):
         self.cmd_pub = self.create_publisher(Twist, DEFAULT_CMD_VEL_TOPIC, 1)
         self.rate = self.create_rate(10)
         self.tf_buffer = tf2_ros.Buffer()
-        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self, spin_thread=True)
 
         # Workaround not to use roslaunch
         use_sim_time_param = rclpy.parameter.Parameter(
@@ -56,7 +58,7 @@ class Mover(Node):
         
     def get_transformation(self, target_frame, start_frame, time=Time()):
             """Get transformation between two frames."""
-            # print(f"   Getting transformation from {start_frame} --> {target_frame}")
+            print(f"   Getting transformation from {start_frame} --> {target_frame}")
             try:
                 while not self.tf_buffer.can_transform(target_frame, start_frame, time): 
                     rclpy.spin_once(self)
@@ -151,7 +153,7 @@ class Mover(Node):
         self.translate(dist)
 
 class GridMapper(Node):
-    def __init__(self, pos_x=0.0, pos_y=0.0, pos_theta=0.0, initial_size=1000, goal=(999, 999), res=0.05):
+    def __init__(self, pos_x=0.0, pos_y=0.0, pos_theta=0.0, initial_size=500, goal=(999, 999), res=0.05):
         super().__init__('grid_mapper')
 
         self.res = res  # m/cell
@@ -168,10 +170,14 @@ class GridMapper(Node):
         self.pos_theta = pos_theta
 
         self.has_pose = True
+
+        # added PA3 planning
+        # self.planner = Plan(context=self.context)
+        # self.executor = Execute(context=self.context)
         
         # set up TF2 buffer and listener
         self.tf_buffer = tf2_ros.Buffer()
-        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self,  spin_thread=True)
         
         # set up publishers and subscribers
         self._cmd_pub = self.create_publisher(Twist, DEFAULT_CMD_VEL_TOPIC, 1)
@@ -197,8 +203,33 @@ class GridMapper(Node):
 
     def reset(self):
         self.state = self.start_state
-
         # TODO move robot back to start with pathfinding using pa3 planning
+
+        # print(f"Resetting to start position.")
+
+        # # convert current and start poses to pose format
+        # current_pose = self.planner.create_pose(self.pos_x, self.pos_y, 0.0, self.planner.make_quat(0.0))  # with dummy orientation
+        # end_coords = self.start_state
+
+        # path_found = self.planner.bfs(current_pose, end_coords)
+
+        # if not path_found:
+        #     print("No path found to starting point.")
+        #     return self.state
+
+        # print("Waiting for Execute node to process pose sequence...")
+        # while not self.executor.done:
+        #     rclpy.spin_once(self.executor)
+
+        # self.executor.execute()
+        # self.executor.done = False
+        # self.executor.dist = []
+        # self.executor.rot = []
+
+        # self.state = self.start_state
+        # self.pos_x, self.pos_y = self.start_state
+
+        # print("Reset complete.\n")
 
         return self.state
 
@@ -331,6 +362,7 @@ class GridMapper(Node):
             self.expand_map(grid_x, grid_y) 
             grid_x, grid_y = self.world_to_grid(self.pos_x, self.pos_y)
         
+        printed = False
         for i, range in enumerate(msg.ranges): # laser scan angle
             if not (msg.range_min <= range <= msg.range_max):
                 continue
@@ -343,7 +375,9 @@ class GridMapper(Node):
             laser_point.point.x = range * math.cos(angle)
             laser_point.point.y = range * math.sin(angle)
             
-            transform = self.mover.get_transformation(TF_ODOM, msg.header.frame_id, msg.header.stamp) 
+            # TODO: fix 
+            # keeps rotating/translating occupancy grid based on not updated tf buffer
+            transform = self.mover.get_transformation(TF_ODOM, msg.header.frame_id) 
             world = transform.dot(np.array([laser_point.point.x, laser_point.point.y, 0, 1]).T)
             world_x = world[0]
             world_y = world[1]
@@ -365,7 +399,8 @@ class GridMapper(Node):
                 self.expand_map(end_x, end_y)
                 end_x, end_y = self.world_to_grid(world_x, world_y)
             self.bresenham(grid_x, grid_y, end_x, end_y) # map update using Bresenham
-        print(f"---> ---> [Laser callback complete] <--- <---")
+
+        print(f"        [Laser callback complete]")
         self.publish_map()
 
     def publish_map(self):

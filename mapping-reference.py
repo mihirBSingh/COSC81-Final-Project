@@ -10,6 +10,7 @@ import numpy as np
 import math
 import tf2_ros
 from tf2_msgs.msg import TFMessage
+from rclpy.time import Time
 
 # constants
 DEFAULT_SCAN_TOPIC = '/scan'
@@ -22,13 +23,132 @@ TF_ODOM = 'odom'
 
 LASER_ROBOT_OFFSET = -math.pi  # angle of the laser that is in front of the robot
 
+LINEAR_VELOCITY = 0.2 # m/s
+ANGULAR_VELOCITY = math.pi/6 # rad/s
+
+USE_SIM_TIME = True 
+
+class Mover(Node): 
+    def __init__(self, linear_velocity=LINEAR_VELOCITY, angular_velocity=ANGULAR_VELOCITY):
+        super().__init__('mover')
+        self.linear_velocity = linear_velocity
+        self.angular_velocity = angular_velocity
+        self.cmd_pub = self.create_publisher(Twist, DEFAULT_CMD_VEL_TOPIC, 1)
+        self.rate = self.create_rate(10)
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+
+        # Workaround not to use roslaunch
+        use_sim_time_param = rclpy.parameter.Parameter(
+            'use_sim_time',
+            rclpy.Parameter.Type.BOOL,
+            USE_SIM_TIME
+        )
+        self.set_parameters([use_sim_time_param])
+        
+    def get_transformation(self, target_frame, start_frame, time=Time()):
+            """Get transformation between two frames."""
+            # print(f"   Getting transformation from {start_frame} --> {target_frame}")
+            try:
+                while not self.tf_buffer.can_transform(target_frame, start_frame, time): 
+                    rclpy.spin_once(self)
+                tf_msg = self.tf_buffer.lookup_transform(target_frame, start_frame, time)
+            except TransformException as ex:
+                self.get_logger().info(
+                    f'Could not transform: {ex}')
+                return
+            # self.get_logger().info(f'Received tf message: {tf_msg}')   
+            translation = tf_msg.transform.translation
+            quaternion = tf_msg.transform.rotation
+
+            t = tf_transformations.translation_matrix([translation.x, translation.y, translation.z])
+            R = tf_transformations.quaternion_matrix([quaternion.x, quaternion.y, quaternion.z, quaternion.w])
+            T = t.dot(R)
+            T = np.round(T, decimals=1) # rounding minimizes noise 
+            
+            # print(f"   Transformation: {T}")
+            return T
+
+    def move(self, linear_vel, angular_vel):
+            """Send a velocity command (linear vel in m/s, angular vel in rad/s)."""
+            # Setting velocities.
+            twist_msg = Twist()
+
+            twist_msg.linear.x = linear_vel
+            twist_msg.angular.z = angular_vel
+            self.cmd_pub.publish(twist_msg)
+
+    # angles in radians
+    def rotate(self,angle):
+        print(f"           Rotating {angle} rad, {angle*180/math.pi} degrees")
+
+        secs = abs(angle) / self.angular_velocity
+        duration = Duration(seconds=secs)
+        start_time = self.get_clock().now()
+
+        # rotate for certain duration 
+        while rclpy.ok():
+            rclpy.spin_once(self)  # Process callbacks
+            # Check if the specified duration has elapsed.
+            if self.get_clock().now() - start_time >= duration:
+                break
+            # Publish the twist message continuously.
+            if angle > 0: 
+                self.move(0.0, self.angular_velocity)  # counterclockwise 
+            else: 
+                self.move(0.0, -self.angular_velocity)  # clockwise
+
+    # distance in m 
+    def translate(self,distance): 
+        print(f"           Moving forward {distance}m")
+        
+        secs = abs(distance) / self.linear_velocity
+        duration = Duration(seconds=secs)
+        start_time = self.get_clock().now()
+
+        # rotate for certain duration 
+        while rclpy.ok():
+            rclpy.spin_once(self)  # Process callbacks
+            # Check if the specified duration has elapsed.
+            if self.get_clock().now() - start_time >= duration:
+                break
+            # Publish the twist message continuously.
+            self.move(self.linear_velocity, 0.0)  
+    
+    def get_angle(self, y, x):
+        theta = math.atan2(y, x)
+        # edge cases for tan (multiples of π/2)
+        if x == 0:
+            if y > 0:
+                theta = math.pi/2
+            else:
+                theta = -math.pi/2
+        return theta 
+        
+    def get_distance(self,p):
+        return  math.sqrt((p[0])**2 + (p[1])**2)
+
+    def move_to_point(self,x,y):
+        print(f"           Moving to point: {x}, {y}")
+        odom_p = np.array([x, y, 0, 1])
+        bl_T2_odom = self.get_transformation(TF_BASE_LINK, TF_ODOM)
+        bl_p = bl_T2_odom.dot(odom_p.transpose())
+        # print(f"           bl_T2_odom: {bl_T2_odom}")
+        # print(f"           Base link point: {bl_p}")
+
+        theta = self.get_angle(bl_p[1], bl_p[0])
+        dist = self.get_distance(bl_p)
+
+        self.rotate(theta)
+        self.translate(dist)
+
 class OccupancyGridMapper(Node):
-    def __init__(self):
+    def __init__(self, pos_x=0.0, pos_y=0.0, pos_theta=0.0, initial_size=1000, goal=(999, 999), res=0.05):
         super().__init__('occupancy_grid_mapper')
         
         # initialize parameters for the map
-        self.resolution = 0.05  # meters per cell
-        self.initial_size = 1000  # initial map size (cells) 
+        self.resolution = res  # meters per cell
+        self.initial_size = initial_size  # initial map size (cells) 
         self.map = np.full((self.initial_size, self.initial_size), -1, dtype=np.int8)  # Unknown: -1
         
         # start in center of the map
@@ -38,9 +158,9 @@ class OccupancyGridMapper(Node):
         self.height = self.initial_size
         
         # robot starting pose
-        self.robot_x = 0.0
-        self.robot_y = 0.0
-        self.robot_theta = 0.0
+        self.robot_x = pos_x
+        self.robot_y = pos_y
+        self.robot_theta = pos_theta
         self.has_pose = True
         
         # TF2 buffer and listener
@@ -53,7 +173,84 @@ class OccupancyGridMapper(Node):
         self.odom_sub = self.create_subscription(Odometry, DEFAULT_ODOM_TOPIC, self.odom_callback, 10)
         self._cmd_pub = self.create_publisher(Twist, DEFAULT_CMD_VEL_TOPIC, 1)
         
+        # set up qlearning states and obstacles 
+        self.start_state = (self.robot_x, self.robot_y)   
+        self.state = self.start_state
+        self.goal = goal
+
+        self.obstacles = set()  # TODO: detect obstacles in nearby cells
+        for row in range(self.height):
+            for col in range(self.width):
+                value = self.map[row, col]
+                if value == 100: 
+                    self.obstacles.add((row, col))
+
+        self.mover = Mover() 
+
         print('Occupancy Grid Mapper initialized')
+
+    def reset(self):
+        self.state = self.start_state
+
+        # TODO move robot back to start with pathfinding using pa3 planning
+
+        return self.state
+
+    def is_terminal(self, state):
+        return state in self.obstacles or state == self.goal
+    
+    def get_next_state(self, state, action):  # m
+        next_state = list(state)
+        
+        if action == 0:  # Move up rel to odom 
+            next_state[1] += STEP
+        elif action == 1:  # Move right
+            next_state[0] += STEP
+        elif action == 2:  # Move down
+            next_state[1] -= STEP
+        elif action == 3:  # Move left
+            next_state[0] -= STEP
+        
+        return tuple(next_state)
+    
+    def compute_reward(self, prev_state, action, type):  
+        # Obstacle or goal
+        state_world = self.get_next_state(prev_state, action)  # m 
+        state = self.world_to_grid(state_world[0], state_world[1])  # px
+        if  type == "obstacle":
+            if self.map[state[0], state[1]] == 100:
+                reward = -10
+            elif state == self.goal:
+                reward = -100
+            else:
+                reward = 0
+
+        elif type == "manhattan":
+                # Manhattan distance to goal
+                prev_dist = abs(prev_state[0] - self.goal[0]) + abs(prev_state[1] - self.goal[1])
+                new_dist = abs(state[0] - self.goal[0]) + abs(state[1] - self.goal[1])
+                reward = prev_dist - new_dist
+                return reward
+        print(f"        Reward: {reward}")
+        return reward 
+    
+    def execute_action(self, action):
+        print(f"        [Executing action]")
+        self.mover.move_to_point(self.pos_x, self.pos_y)
+
+    def step(self, action, reward_type):
+        print(f"      [Stepping in grid]")
+        next_state = self.get_next_state(self.state, action)  # m 
+        state_px = self.world_to_grid(next_state[0], next_state[1])  # px
+        print(f"        Next state (px): {state_px}, (m): {next_state[0]}, {next_state[1]}")
+        
+        reward = self.compute_reward(self.state, action, reward_type) 
+        self.state = next_state
+        self.pos_x, self.pos_y = next_state
+        done = self.is_terminal(next_state)
+        self.execute_action(action)
+        rclpy.spin_once(self)  # Process any callbacks after action execution
+        return next_state, reward, done
 
     def odom_callback(self, msg):
         # get xy position
@@ -68,6 +265,7 @@ class OccupancyGridMapper(Node):
         self.has_pose = True
 
     def laser_callback(self, msg):
+        print(f"        [Laser callback]")
         
         # check need to extend the map
         grid_x, grid_y = self.world_to_grid(self.robot_x, self.robot_y)
@@ -75,6 +273,7 @@ class OccupancyGridMapper(Node):
             self.expand_map(grid_x, grid_y)
             grid_x, grid_y = self.world_to_grid(self.robot_x, self.robot_y)
         
+        printed = False
         # process each laser scan angle
         for i, range_val in enumerate(msg.ranges):
             if math.isinf(range_val) or math.isnan(range_val):
@@ -94,16 +293,15 @@ class OccupancyGridMapper(Node):
             point.point.z = 0.0
             
             # transform from laser to Odom
-            if self.tf_buffer.can_transform('odom', msg.header.frame_id, msg.header.stamp):  
-                try:
-                    transform = self.tf_buffer.lookup_transform(TF_ODOM, msg.header.frame_id, msg.header.stamp) #msg.header.stamp
-                    point_odom = do_transform_point(point, transform)
-                    world_x = point_odom.point.x
-                    world_y = point_odom.point.y
-                except Exception as e:
+            try:
+                transform = self.tf_buffer.lookup_transform(TF_ODOM, msg.header.frame_id, msg.header.stamp) #msg.header.stamp
+                point_odom = do_transform_point(point, transform)
+                world_x = point_odom.point.x
+                world_y = point_odom.point.y
+            except Exception as e:
+                if not printed: 
                     self.get_logger().warn(f'Transform failed: {str(e)}')
-                    continue
-            else:
+                    printed = True
                 continue
             
             # convert to grid coordinates
