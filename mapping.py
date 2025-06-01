@@ -170,7 +170,7 @@ class GridMapper(Node):
         self.laser_sub = self.create_subscription(LaserScan, DEFAULT_SCAN_TOPIC, self.laser_callback, 10)
         
         # set up qlearning states and obstacles 
-        self.start_state = (pos_y, pos_x)  # (row, col)
+        self.start_state = (pos_y, pos_x)  
         self.state = self.start_state
         self.goal = goal
 
@@ -239,7 +239,6 @@ class GridMapper(Node):
             self.pos_y -= STEP 
         elif action == 3:  # Move left
             self.pos_x -= STEP 
-        
 
         self.mover.move_to_point(self.pos_x, self.pos_y)
 
