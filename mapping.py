@@ -239,7 +239,7 @@ class GridMapper(Node):
         state_world = self.get_next_state(prev_state, action)  # m 
         state = self.world_to_grid(state_world[0], state_world[1])  # px
         if  type == "obstacle":
-            if self.map[state[0], state[1]] == 100:
+            if self.map[state[1], state[0]] == 100:
                 reward = -10
             elif state == self.goal:
                 reward = -100

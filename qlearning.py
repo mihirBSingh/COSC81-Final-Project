@@ -5,6 +5,27 @@ from mapping import GridMapper
 # from rclpy.node import Node
 import threading
 
+
+def print_grid_window(map_data, center, window_size=5):
+    cx, cy = center
+    half = window_size // 2
+
+    print(f"\n--- Grid window around {center} ---")
+    for y in range(cy - half, cy + half + 1):
+        row = ""
+        for x in range(cx - half, cx + half + 1):
+            if 0 <= x < map_data.shape[0] and 0 <= y < map_data.shape[1]:
+                val = map_data[y, x]
+                if (x, y) == center:
+                    row += f"[{val:3}] "  # Highlight center
+                else:
+                    row += f" {val:3}  "
+            else:
+                row += "  X   "
+        print(row)
+    print("--- End Grid ---\n")
+
+
 class QLearningAgent:
     def __init__(self, discount_rate=0.9, learning_rate=0.1, exploration_rate=0.1, initial_size=1000, res=0.05):
         grid_size = int(initial_size * res)
@@ -19,15 +40,49 @@ class QLearningAgent:
 
         print(f"Q-table initialized with shape: {self.q_table.shape} and origin: {self.origin_x}, {self.origin_y}\n")
 
-    def choose_action(self, state):
-        if random.uniform(0, 1) < self.exploration_rate:
-            action = random.randint(0, 3) # Explore random action 
-        else:
-            action = np.argmax(self.q_table[state])  # Exploit best action from qtable
-        
-        movement = "UP" if action == 0 else "RIGHT" if action == 1 else "DOWN" if action == 2 else "LEFT"
-        print(f"      Chose action: {action} ({movement}) for state: {state}")
-        return action
+    def choose_action(self, state, grid):
+        tried = set()
+        max_actions = 4
+        actions = list(range(max_actions))
+
+        while len(tried) < max_actions:
+            if random.uniform(0, 1) < self.exploration_rate:
+                action = random.choice(list(set(actions) - tried))
+            else:
+                q_vals = self.q_table[state]
+                for a in np.argsort(-q_vals):
+                    if a not in tried:
+                        action = a
+                        break
+            tried.add(action)
+
+            # Compute the next state in world coordinates and then grid indices
+            state_world = grid.get_next_state(state, action)  # in meters
+            next_state = grid.world_to_grid(state_world[0], state_world[1])  # in grid coords (x, y)
+
+            # Debug info: print the grid window around considered next state
+            print(f"Trying action {action} -> next state (grid coords): {next_state}")
+            print_grid_window(grid.map, next_state, window_size=5)
+
+            # Check that next_state is within map bounds
+            if not (0 <= next_state[0] < grid.width and 0 <= next_state[1] < grid.height):
+                print(f"      Next state {next_state} out of bounds, trying next action...")
+                continue
+
+            # Check occupancy grid cell value at next_state
+            cell_val = grid.map[next_state[1], next_state[0]]
+
+            # Only allow action if cell is free (0). Block if obstacle (100) or unknown (-1)
+            if cell_val == 0:
+                move_names = ["UP", "RIGHT", "DOWN", "LEFT"]
+                print(f"      Chose action: {action} ({move_names[action]}) for state: {state}")
+                return action
+            else:
+                print(f"      Blocked by obstacle or unknown cell (val={cell_val}) at {next_state}, trying next action...")
+
+        # If all actions are blocked, default to action 0 (UP)
+        print("      All directions blocked. Returning default action 0 (UP).")
+        return None
 
     def update_q_value(self, state, action, reward, next_state):
         print(f"      Updating Q-value for state: {state}, action: {action}, reward: {reward}, next_state: {next_state}")
@@ -67,7 +122,8 @@ class QLearningAgent:
             done = False
 
             while not done:
-                action = self.choose_action(state)
+                action = self.choose_action(state, grid)
+
                 next_state, reward, done = grid.step(action, reward_type)
                 
                 next_state_offset = (next_state[0] + self.origin_x, next_state[1] + self.origin_y)  # offset by origin 
