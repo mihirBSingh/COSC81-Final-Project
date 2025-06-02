@@ -19,7 +19,7 @@ from tf2_ros import TransformException
 import tf_transformations
 from rclpy.time import Time
 
-# from planning import Plan, Execute
+from planning import Plan, Execute
 
 DEFAULT_CMD_VEL_TOPIC = '/cmd_vel'
 DEFAULT_SCAN_TOPIC = '/scan'
@@ -169,9 +169,9 @@ class GridMapper(Node):
 
         self.has_pose = True
 
-        # added PA3 planning
-        # self.planner = Plan(context=self.context)
-        # self.executor = Execute(context=self.context)
+        # added planning
+        self.planner = Plan(context=self.context)
+        self.executor = Execute(context=self.context)
         
         # set up TF2 buffer and listener
         self.tf_buffer = tf2_ros.Buffer()
@@ -371,13 +371,6 @@ class GridMapper(Node):
             laser_point.point.x = range * math.cos(angle)
             laser_point.point.y = range * math.sin(angle)
             
-            # TODO: fix 
-            # keeps rotating/translating occupancy grid based on not updated tf buffer
-            # transform = self.mover.get_transformation(TF_ODOM, msg.header.frame_id) 
-            # world = transform.dot(np.array([laser_point.point.x, laser_point.point.y, 0, 1]).T)
-            # world_x = world[0]
-            # world_y = world[1]
-
             try:
                 transform = self.tf_buffer.lookup_transform(TF_ODOM, msg.header.frame_id, msg.header.stamp) 
                 point_odom = do_transform_point(laser_point, transform)
