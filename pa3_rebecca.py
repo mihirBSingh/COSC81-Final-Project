@@ -240,7 +240,7 @@ class Plan(Node):
             self.drive_straight(dist)
 
     #find the pose sequence, publish the pose sequence, and then follow it
-    def path_follower(self):
+    def path_follower(self, x,y,algo):
         #print("in path follower")
         if self.map is None:
             #print("no map")
@@ -253,13 +253,13 @@ class Plan(Node):
             self.get_logger().warn(f"Transform error: {ex}")
             return
 
-        goal_x = input("Enter goal x:")
-        goal_y = input("Enter goal y:")
+        goal_x = x
+        goal_y = y
 
         self.goal = (float(goal_x), float(goal_y) )
 
         #switch algorithm here between BFS and DFS
-        poses = plan_path(self.map, self.start, self.goal, algorithm="BFS")
+        poses = plan_path(self.map, self.start, self.goal, algo)
 
 
         pose_array = PoseArray()
@@ -280,7 +280,10 @@ def main(args=None):
     p = Plan()
 
     while rclpy.ok():
-        p.path_follower()
+        goal_x = input("Enter goal x:")
+        goal_y = input("Enter goal y:")
+        algo = input("Enter algorithm (BFS or DFS):")
+        p.path_follower(goal_x, goal_y, algo)
         rclpy.spin_once(p)
 
     rclpy.shutdown()
