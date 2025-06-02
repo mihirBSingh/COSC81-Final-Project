@@ -61,7 +61,7 @@ class Mover(Node):
             # print(f"   Getting transformation from {start_frame} --> {target_frame}")
             try:
                 while not self.tf_buffer.can_transform(target_frame, start_frame, time): 
-                    rclpy.spin_once(self)
+                    pass
                 tf_msg = self.tf_buffer.lookup_transform(target_frame, start_frame, time)
             except TransformException as ex:
                 self.get_logger().info(
@@ -98,7 +98,6 @@ class Mover(Node):
 
         # rotate for certain duration 
         while rclpy.ok():
-            rclpy.spin_once(self)  # Process callbacks
             # Check if the specified duration has elapsed.
             if self.get_clock().now() - start_time >= duration:
                 break
@@ -118,7 +117,6 @@ class Mover(Node):
 
         # rotate for certain duration 
         while rclpy.ok():
-            rclpy.spin_once(self)  # Process callbacks
             # Check if the specified duration has elapsed.
             if self.get_clock().now() - start_time >= duration:
                 break
@@ -286,7 +284,6 @@ class GridMapper(Node):
         self.pos_x, self.pos_y = next_state
         done = self.is_terminal(next_state)
         self.execute_action(action)
-        rclpy.spin_once(self)  # Process any callbacks after action execution
         return next_state, reward, done
 
     def get_curr_pose(self, msg):
