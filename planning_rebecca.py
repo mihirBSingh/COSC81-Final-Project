@@ -40,21 +40,22 @@ class Grid:
         self.origin = origin
 
         #call function to expand the obstocales on the grid data
-        self.expand_obstacles(ROBOT_RADIUS)
+        # self.expand_obstacles(ROBOT_RADIUS)
+        # print("initialized grid")
 
     def is_free(self, r, c):
         return 0 <= r < self.height and 0 <= c < self.width and self.grid[r, c] == 0
 
     #transform world to grid coord
     def world_to_grid(self, x, y):
-        col = int((x - self.origin.x) / self.resolution)
-        row = int((y - self.origin.y) / self.resolution)
+        col = int((x - self.origin[0]) / self.resolution)
+        row = int((y - self.origin[1]) / self.resolution)
         return (row, col)
 
     #transform grid to world grid
     def grid_to_world(self, row, col):
-        x = col * self.resolution + self.origin.x + self.resolution / 2.0
-        y = row * self.resolution + self.origin.y + self.resolution / 2.0
+        x = col * self.resolution + self.origin[0] + self.resolution / 2.0
+        y = row * self.resolution + self.origin[1] + self.resolution / 2.0
         return (x, y)
 
     #expand obstacle points on grid maps using robot radius
@@ -83,8 +84,8 @@ class Grid:
 def plan_path(grid, start_pos, goal_pos, algorithm="BFS"):
 
     #calculate start cell in grid coordinates
-    start_cell = grid.world_to_grid(*start_pos)
-    goal_cell = grid.world_to_grid(*goal_pos)
+    start_cell = grid.world_to_grid(start_pos[0], start_pos[1])
+    goal_cell = grid.world_to_grid(goal_pos[0], goal_pos[1])
 
     frontier = deque() if algorithm == "BFS" else []
     came_from = {}
@@ -147,7 +148,7 @@ def plan_path(grid, start_pos, goal_pos, algorithm="BFS"):
 
 #node to follow the pose sequence
 class Plan(Node):
-    def __init__(self, map=None):
+    def __init__(self, map=None, tf_buffer=None):
         super().__init__(NODE_NAME)
 
         self.set_parameters([rclpy.parameter.Parameter(
@@ -157,7 +158,7 @@ class Plan(Node):
         )])
 
         #setting up publishers and subscribers
-        self.sub = self.create_subscription(OccupancyGrid, MAP_TOPIC, self.map_callback, 1)
+        # self.sub = self.create_subscription(OccupancyGrid, MAP_TOPIC, self.map_callback, 1)
         self.pose_pub = self.create_publisher(PoseArray, POSE_TOPIC, 1)
         self._cmd_pub = self.create_publisher(Twist, DEFAULT_CMD_VEL_TOPIC, 1)
 
@@ -166,22 +167,23 @@ class Plan(Node):
         self.start = None
         self.goal = None
 
-        self.tf_buffer = tf2_ros.Buffer()
-        self.listener = tf2_ros.TransformListener(self.tf_buffer, self)
+        # self.tf_buffer = tf2_ros.Buffer()
+        # self.listener = tf2_ros.TransformListener(self.tf_buffer, self, spin_thread=True)
+        self.tf_buffer = tf_buffer
 
     def set_map(self, map):
         self.map = map
 
-    def map_callback(self, msg):
-        self.get_logger().info("Received OccupancyGrid.")
-        self.map_msg = msg
-        self.map = Grid(
-            msg.data,
-            msg.info.width,
-            msg.info.height,
-            msg.info.resolution,
-            msg.info.origin.position
-        )
+    # def map_callback(self, msg):
+    #     # self.get_logger().info("Received OccupancyGrid.")
+    #     self.map_msg = msg
+    #     self.map = Grid(
+    #         msg.data,
+    #         msg.info.width,
+    #         msg.info.height,
+    #         msg.info.resolution,
+    #         msg.info.origin.position
+    #     )
 
     def move(self, linear_vel, angular_vel):
         twist_msg = Twist()
@@ -201,7 +203,7 @@ class Plan(Node):
         start_time = self.get_clock().now()
 
         while rclpy.ok():
-            rclpy.spin_once(self)
+            # rclpy.spin_once(self)
             self.move(0.0, angular_vel)
             if self.get_clock().now() - start_time >= duration:
                 break
@@ -213,7 +215,7 @@ class Plan(Node):
         start_time = self.get_clock().now()
 
         while rclpy.ok():
-            rclpy.spin_once(self)
+            # rclpy.spin_once(self)
             self.move(LINEAR_VELOCITY, 0.0)
             if self.get_clock().now() - start_time >= duration:
                 break
@@ -225,6 +227,10 @@ class Plan(Node):
         print(f"Following path with {len(pose_sequence)} poses.")
         for pose in pose_sequence:
             try:
+                print("  looking up transform")
+                while not self.tf_buffer.can_transform(MAP_FRAME_ID, TF_BASE_LINK, rclpy.time.Time()):
+                    print("  waiting for transform")
+                    pass
                 tf_msg = self.tf_buffer.lookup_transform(MAP_FRAME_ID, TF_BASE_LINK, rclpy.time.Time())
                 current_x = tf_msg.transform.translation.x
                 current_y = tf_msg.transform.translation.y
@@ -245,7 +251,7 @@ class Plan(Node):
 
     #find the pose sequence, publish the pose sequence, and then follow it
     def path_follower(self, x,y,algo):
-        print("in path follower")
+        print("  in path follower")  
         if self.map is None:
             print("no map")
             return
@@ -255,7 +261,7 @@ class Plan(Node):
             
             self.start = (tf_msg.transform.translation.x, tf_msg.transform.translation.y)
         except TransformException as ex:
-            self.get_logger().warn(f"Transform error: {ex}")
+            self.get_logger().warn(f"  Transform error: {ex}")
             return
 
         goal_x = x
@@ -264,16 +270,16 @@ class Plan(Node):
         self.goal = (float(goal_x), float(goal_y) )
 
         #switch algorithm here between BFS and DFS
+        print(f"  start: {self.start}, goal: {self.goal}")
         poses = plan_path(self.map, self.start, self.goal, algo)
-        print(f"poses: {poses}")
 
         pose_array = PoseArray()
         pose_array.header.stamp = self.get_clock().now().to_msg()
-        pose_array.header.frame_id = self.map_msg.header.frame_id
+        pose_array.header.frame_id ='map'
         pose_array.poses = poses
 
         self.pose_pub.publish(pose_array)
-        self.get_logger().info(f"Published path with {len(poses)} poses.")
+        print(f"  Published path with {len(poses)} poses.")
 
         #follow the path after its been published
         self.follow_path(poses)

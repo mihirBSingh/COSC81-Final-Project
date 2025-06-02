@@ -60,11 +60,12 @@ class QLearningAgent:
 
     def train(self, num_episodes, grid, reward_type ="obstacle"):
         print(f"Training for {num_episodes} episodes...")
+        state = (0,0)
         for _ in range(num_episodes):
-            state = grid.reset()
+            print(f" --- State (px): {state} --- ")
             state_offset = (state[0] + self.origin_x, state[1] + self.origin_y)  # offset by origin 
             done = False
-            print(f" --- State (px): {state} --- ")
+
             while not done:
                 action = self.choose_action(state)
                 next_state, reward, done = grid.step(action, reward_type)
@@ -76,6 +77,7 @@ class QLearningAgent:
                 self.update_q_value(state_offset, action, reward, next_state_offset)
                 state = next_state
                 print(f" --- State (px): {state} --- ")
+            state = grid.reset()
 
 def main(args=None):
     rclpy.init(args=args)
@@ -93,6 +95,7 @@ def main(args=None):
  
     executor = rclpy.executors.MultiThreadedExecutor()
     executor.add_node(gm_node)
+    executor.add_node(gm_node.planner)
     executor_thread = threading.Thread(target=executor.spin, daemon=True)
     executor_thread.start()
 

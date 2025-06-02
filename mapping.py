@@ -19,7 +19,7 @@ from tf2_ros import TransformException
 import tf_transformations
 from rclpy.time import Time
 
-from planning_rebecca import Plan
+from planning_rebecca import Plan, Grid
 
 DEFAULT_CMD_VEL_TOPIC = '/cmd_vel'
 DEFAULT_SCAN_TOPIC = '/scan'
@@ -169,13 +169,14 @@ class GridMapper(Node):
 
         self.has_pose = True
 
-        # added planning
-        self.planner = Plan()
-        
         # set up TF2 buffer and listener
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self,  spin_thread=True)
+
+        # added planning
+        self.planner = Plan(tf_buffer=self.tf_buffer)
         
+
         # set up publishers and subscribers
         self._cmd_pub = self.create_publisher(Twist, DEFAULT_CMD_VEL_TOPIC, 1)
         self.odom_sub = self.create_subscription(Odometry, DEFAULT_ODOM_TOPIC, self.get_curr_pose, 10)
@@ -204,7 +205,8 @@ class GridMapper(Node):
 
         print(f"Resetting to start position.")
 
-        self.planner.set_map(self.map)
+        self.planner.set_map(Grid(self.map, self.width, self.height, self.res, (self.origin_x, self.origin_y)))
+
         self.planner.path_follower(self.start_state[0], self.start_state[1], "BFS")
 
         self.state = self.start_state
