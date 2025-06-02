@@ -203,31 +203,31 @@ class GridMapper(Node):
         self.state = self.start_state
         # TODO move robot back to start with pathfinding using pa3 planning
 
-        # print(f"Resetting to start position.")
+        print(f"Resetting to start position.")
 
-        # # convert current and start poses to pose format
-        # current_pose = self.planner.create_pose(self.pos_x, self.pos_y, 0.0, self.planner.make_quat(0.0))  # with dummy orientation
-        # end_coords = self.start_state
+        # convert current and start poses to pose format
+        current_pose = self.planner.create_pose(self.pos_x, self.pos_y, 0.0, self.planner.make_quat(0.0))  # with dummy orientation
+        end_coords = self.start_state
 
-        # path_found = self.planner.bfs(current_pose, end_coords)
+        path_found = self.planner.bfs(current_pose, end_coords)
 
-        # if not path_found:
-        #     print("No path found to starting point.")
-        #     return self.state
+        if not path_found:
+            print("No path found to starting point.")
+            return self.state
 
-        # print("Waiting for Execute node to process pose sequence...")
-        # while not self.executor.done:
-        #     rclpy.spin_once(self.executor)
+        print("Waiting for Execute node to process pose sequence...")
+        while not self.executor.done:
+            rclpy.spin_once(self.executor)
 
-        # self.executor.execute()
-        # self.executor.done = False
-        # self.executor.dist = []
-        # self.executor.rot = []
+        self.executor.execute()
+        self.executor.done = False
+        self.executor.dist = []
+        self.executor.rot = []
 
-        # self.state = self.start_state
-        # self.pos_x, self.pos_y = self.start_state
+        self.state = self.start_state
+        self.pos_x, self.pos_y = self.start_state
 
-        # print("Reset complete.\n")
+        print("Reset complete.\n")
 
         return self.state
 
