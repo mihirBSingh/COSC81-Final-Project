@@ -58,7 +58,7 @@ class Mover(Node):
         
     def get_transformation(self, target_frame, start_frame, time=Time()):
             """Get transformation between two frames."""
-            print(f"   Getting transformation from {start_frame} --> {target_frame}")
+            # print(f"   Getting transformation from {start_frame} --> {target_frame}")
             try:
                 while not self.tf_buffer.can_transform(target_frame, start_frame, time): 
                     rclpy.spin_once(self)
@@ -306,7 +306,6 @@ class GridMapper(Node):
         return 0 <= x < self.width and 0 <= y < self.height
 
     def bresenham(self, x0, y0, x1, y1): # refactored Bresenham from lec
-        print(f"        [Bresenham]")
         dx, dy = abs(x1 - x0), abs(y1 - y0)
         sx, sy = (1 if x0 < x1 else -1), (1 if y0 < y1 else -1)
         err = dx - dy
@@ -377,24 +376,24 @@ class GridMapper(Node):
             
             # TODO: fix 
             # keeps rotating/translating occupancy grid based on not updated tf buffer
-            transform = self.mover.get_transformation(TF_ODOM, msg.header.frame_id) 
-            world = transform.dot(np.array([laser_point.point.x, laser_point.point.y, 0, 1]).T)
-            world_x = world[0]
-            world_y = world[1]
+            # transform = self.mover.get_transformation(TF_ODOM, msg.header.frame_id) 
+            # world = transform.dot(np.array([laser_point.point.x, laser_point.point.y, 0, 1]).T)
+            # world_x = world[0]
+            # world_y = world[1]
 
-            # try:
-            #     transform = self.tf_buffer.lookup_transform(TF_ODOM, msg.header.frame_id, msg.header.stamp) 
-            #     point_odom = do_transform_point(laser_point, transform)
-            #     world_x = point_odom.point.x
-            #     world_y = point_odom.point.y
-            # except Exception as e:
-            #     if not printed: 
-            #         self.get_logger().warn(f'Transform failed: {str(e)}')
-            #         printed = True
-            #     continue
+            try:
+                transform = self.tf_buffer.lookup_transform(TF_ODOM, msg.header.frame_id, msg.header.stamp) 
+                point_odom = do_transform_point(laser_point, transform)
+                world_x = point_odom.point.x
+                world_y = point_odom.point.y
+            except Exception as e:
+                if not printed: 
+                    self.get_logger().warn(f'Transform failed: {str(e)}')
+                    printed = True
+                continue
             
             end_x, end_y = self.world_to_grid(world_x, world_y) # export to grid
-            print(f"        [end_x, end_y]: {end_x}, {end_y}")
+            # print(f"        [end_x, end_y]: {end_x}, {end_y}")
             if not self.valid_cell(end_x, end_y):
                 self.expand_map(end_x, end_y)
                 end_x, end_y = self.world_to_grid(world_x, world_y)

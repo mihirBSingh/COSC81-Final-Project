@@ -2,6 +2,8 @@ import numpy as np
 import random
 import rclpy
 from mapping import GridMapper
+# from rclpy.node import Node
+import threading
 
 class QLearningAgent:
     def __init__(self, discount_rate=0.9, learning_rate=0.1, exploration_rate=0.1, initial_size=1000, res=0.05):
@@ -77,8 +79,8 @@ class QLearningAgent:
 
 def main(args=None):
     rclpy.init(args=args)
-    
-    initial_size = 1000 
+        
+    initial_size = 500 
     res = 0.05
 
     # odom px
@@ -87,13 +89,17 @@ def main(args=None):
     goal = (initial_size-1, initial_size-1)
 
     gm_node = GridMapper(goal=goal, pos_x=startx, pos_y=starty, initial_size=initial_size, res=res)
+    q = QLearningAgent(initial_size=initial_size, res=res)
+ 
+    executor = rclpy.executors.MultiThreadedExecutor()
+    executor.add_node(gm_node)
+    executor_thread = threading.Thread(target=executor.spin, daemon=True)
+    executor_thread.start()
 
     # hyperparameters TODO: tune
     # discount_factor = 0.4
     # learning_rate = 0.1 
     # exploration_rate = 0.1
-
-    q = QLearningAgent(initial_size=initial_size, res=res)
 
     q.train(100, gm_node)
 
