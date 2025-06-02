@@ -19,7 +19,7 @@ evaluate
 
 2. for each of the following commands, open a new terminal, run `docker compose exec ros bash`, then the command
 
-   `ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 map odom` - publishes the static transform from map and odom
+   `ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 1 map odom` - publishes the static transform from map and odom
 
    `python3 qlearning.py` - run qlearning.py
 

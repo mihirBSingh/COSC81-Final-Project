@@ -20,7 +20,7 @@ from tf2_ros import TransformException
 NODE_NAME = "planner"
 MAP_TOPIC = "map"
 POSE_TOPIC = "pose_sequence"
-TF_BASE_LINK = 'rosbot/base_link'
+TF_BASE_LINK = 'base_link'
 MAP_FRAME_ID = "map"
 DEFAULT_CMD_VEL_TOPIC = 'cmd_vel'
 USE_SIM_TIME = True
@@ -147,7 +147,7 @@ def plan_path(grid, start_pos, goal_pos, algorithm="BFS"):
 
 #node to follow the pose sequence
 class Plan(Node):
-    def __init__(self):
+    def __init__(self, map=None):
         super().__init__(NODE_NAME)
 
         self.set_parameters([rclpy.parameter.Parameter(
@@ -161,13 +161,16 @@ class Plan(Node):
         self.pose_pub = self.create_publisher(PoseArray, POSE_TOPIC, 1)
         self._cmd_pub = self.create_publisher(Twist, DEFAULT_CMD_VEL_TOPIC, 1)
 
-        self.map = None
+        self.map = map
         self.map_msg = None
         self.start = None
         self.goal = None
 
         self.tf_buffer = tf2_ros.Buffer()
         self.listener = tf2_ros.TransformListener(self.tf_buffer, self)
+
+    def set_map(self, map):
+        self.map = map
 
     def map_callback(self, msg):
         self.get_logger().info("Received OccupancyGrid.")
@@ -219,6 +222,7 @@ class Plan(Node):
 
     #following the pose sequence
     def follow_path(self, pose_sequence):
+        print(f"Following path with {len(pose_sequence)} poses.")
         for pose in pose_sequence:
             try:
                 tf_msg = self.tf_buffer.lookup_transform(MAP_FRAME_ID, TF_BASE_LINK, rclpy.time.Time())
@@ -240,27 +244,28 @@ class Plan(Node):
             self.drive_straight(dist)
 
     #find the pose sequence, publish the pose sequence, and then follow it
-    def path_follower(self):
-        #print("in path follower")
+    def path_follower(self, x,y,algo):
+        print("in path follower")
         if self.map is None:
-            #print("no map")
+            print("no map")
             return
 
         try:
             tf_msg = self.tf_buffer.lookup_transform(MAP_FRAME_ID, TF_BASE_LINK, rclpy.time.Time())
+            
             self.start = (tf_msg.transform.translation.x, tf_msg.transform.translation.y)
         except TransformException as ex:
             self.get_logger().warn(f"Transform error: {ex}")
             return
 
-        goal_x = input("Enter goal x:")
-        goal_y = input("Enter goal y:")
+        goal_x = x
+        goal_y = y
 
         self.goal = (float(goal_x), float(goal_y) )
 
         #switch algorithm here between BFS and DFS
-        poses = plan_path(self.map, self.start, self.goal, algorithm="BFS")
-
+        poses = plan_path(self.map, self.start, self.goal, algo)
+        print(f"poses: {poses}")
 
         pose_array = PoseArray()
         pose_array.header.stamp = self.get_clock().now().to_msg()
@@ -276,11 +281,13 @@ class Plan(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    print("starting pa3")
     p = Plan()
 
     while rclpy.ok():
-        p.path_follower()
+        goal_x = input("Enter goal x:")
+        goal_y = input("Enter goal y:")
+        algo = input("Enter algorithm (BFS or DFS):")
+        p.path_follower(goal_x, goal_y, algo)
         rclpy.spin_once(p)
 
     rclpy.shutdown()

@@ -19,7 +19,7 @@ from tf2_ros import TransformException
 import tf_transformations
 from rclpy.time import Time
 
-# from planning import Plan, Execute
+from planning_rebecca import Plan
 
 DEFAULT_CMD_VEL_TOPIC = '/cmd_vel'
 DEFAULT_SCAN_TOPIC = '/scan'
@@ -151,7 +151,7 @@ class Mover(Node):
         self.translate(dist)
 
 class GridMapper(Node):
-    def __init__(self, pos_x=0.0, pos_y=0.0, pos_theta=0.0, initial_size=500, goal=(999, 999), res=0.05):
+    def __init__(self, pos_x=0.0, pos_y=0.0, pos_theta=0.0, initial_size=1000, goal=(999, 999), res=0.05):
         super().__init__('grid_mapper')
 
         self.res = res  # m/cell
@@ -169,9 +169,8 @@ class GridMapper(Node):
 
         self.has_pose = True
 
-        # added PA3 planning
-        # self.planner = Plan(context=self.context)
-        # self.executor = Execute(context=self.context)
+        # added planning
+        self.planner = Plan()
         
         # set up TF2 buffer and listener
         self.tf_buffer = tf2_ros.Buffer()
@@ -203,35 +202,20 @@ class GridMapper(Node):
         self.state = self.start_state
         # TODO move robot back to start with pathfinding using pa3 planning
 
-        # print(f"Resetting to start position.")
+        print(f"Resetting to start position.")
 
-        # # convert current and start poses to pose format
-        # current_pose = self.planner.create_pose(self.pos_x, self.pos_y, 0.0, self.planner.make_quat(0.0))  # with dummy orientation
-        # end_coords = self.start_state
+        self.planner.set_map(self.map)
+        self.planner.path_follower(self.start_state[0], self.start_state[1], "BFS")
 
-        # path_found = self.planner.bfs(current_pose, end_coords)
+        self.state = self.start_state
+        self.pos_x, self.pos_y = self.start_state
 
-        # if not path_found:
-        #     print("No path found to starting point.")
-        #     return self.state
-
-        # print("Waiting for Execute node to process pose sequence...")
-        # while not self.executor.done:
-        #     rclpy.spin_once(self.executor)
-
-        # self.executor.execute()
-        # self.executor.done = False
-        # self.executor.dist = []
-        # self.executor.rot = []
-
-        # self.state = self.start_state
-        # self.pos_x, self.pos_y = self.start_state
-
-        # print("Reset complete.\n")
+        print("Reset complete.\n")
 
         return self.state
 
     def is_terminal(self, state):
+        print(f"        State: {state}, Goal: {self.goal}")
         return state in self.obstacles or state == self.goal
     
     def get_next_state(self, state, action):  # m
@@ -371,13 +355,6 @@ class GridMapper(Node):
             laser_point.point.x = range * math.cos(angle)
             laser_point.point.y = range * math.sin(angle)
             
-            # TODO: fix 
-            # keeps rotating/translating occupancy grid based on not updated tf buffer
-            # transform = self.mover.get_transformation(TF_ODOM, msg.header.frame_id) 
-            # world = transform.dot(np.array([laser_point.point.x, laser_point.point.y, 0, 1]).T)
-            # world_x = world[0]
-            # world_y = world[1]
-
             try:
                 transform = self.tf_buffer.lookup_transform(TF_ODOM, msg.header.frame_id, msg.header.stamp) 
                 point_odom = do_transform_point(laser_point, transform)
@@ -396,7 +373,7 @@ class GridMapper(Node):
                 end_x, end_y = self.world_to_grid(world_x, world_y)
             self.bresenham(grid_x, grid_y, end_x, end_y) # map update using Bresenham
 
-        print(f"        [Laser callback complete]")
+        # print(f"        [Laser callback complete]")
         self.publish_map()
 
     def publish_map(self):

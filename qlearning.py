@@ -136,14 +136,13 @@ class QLearningAgent:
 def main(args=None):
     rclpy.init(args=args)
         
-    initial_size = 500 
+    initial_size = 1000 
     res = 0.05
 
     # odom px
     startx = 0 
     starty = 0 
-    # goal = (initial_size-1, initial_size-1)
-    goal = (4, 3)
+    goal = (0,1)  # m
 
     gm_node = GridMapper(goal=goal, pos_x=startx, pos_y=starty, initial_size=initial_size, res=res)
     q = QLearningAgent(initial_size=initial_size, res=res)
