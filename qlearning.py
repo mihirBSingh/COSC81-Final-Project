@@ -25,6 +25,24 @@ def print_grid_window(map_data, center, window_size=5):
         print(row)
     print("--- End Grid ---\n")
 
+def print_qtable_window(q_table, state):
+    """
+    Print the Q-values for all actions at a single state.
+    Args:
+        q_table: 3D numpy array (x, y, actions)
+        state: tuple of (x, y) coordinates
+    """
+    x, y = state
+    action_names = ["UP", "RIGHT", "DOWN", "LEFT"]
+    
+    print(f"\n=== Q-values at state {state} ===")
+    if 0 <= x < q_table.shape[0] and 0 <= y < q_table.shape[1]:
+        for action, name in enumerate(action_names):
+            print(f"{name:5}: {q_table[y, x, action]:6.2f}")
+    else:
+        print("Position out of bounds")
+    print("=== End Q-values ===\n")
+
 
 class QLearningAgent:
     def __init__(self, discount_rate=0.9, learning_rate=0.1, exploration_rate=0.5, initial_size=1000, res=0.05):
@@ -47,8 +65,10 @@ class QLearningAgent:
 
         while len(tried) < max_actions:
             if random.uniform(0, 1) < self.exploration_rate:
+                print("   exploring")
                 action = random.choice(list(set(actions) - tried))
             else:
+                print("   exploiting")
                 q_vals = self.q_table[state]
                 for a in np.argsort(-q_vals):
                     if a not in tried:
@@ -61,12 +81,12 @@ class QLearningAgent:
             next_state = grid.world_to_grid(state_world[0], state_world[1])  # in grid coords (x, y)
 
             # Debug info: print the grid window around considered next state
-            print(f"Trying action {action} -> next state (grid coords): {next_state}")
+            # print(f"Trying action {action} -> next state (grid coords): {next_state}")
             print_grid_window(grid.map, next_state, window_size=5)
 
             # Check that next_state is within map bounds
             if not (0 <= next_state[0] < grid.width and 0 <= next_state[1] < grid.height):
-                print(f"      Next state {next_state} out of bounds, trying next action...")
+                # print(f"      Next state {next_state} out of bounds, trying next action...")
                 continue
 
             # Check occupancy grid cell value at next_state
@@ -113,7 +133,7 @@ class QLearningAgent:
     def in_bounds(self, state):
         return 0 <= state[0] < self.q_table.shape[0] and 0 <= state[1] < self.q_table.shape[1]
 
-    def train(self, num_episodes, grid, reward_type ="obstacle"):
+    def train(self, num_episodes, grid, reward_type ="manhattan"):
         print(f"Training for {num_episodes} episodes...")
         state = (0,0)
         for _ in range(num_episodes):
@@ -131,6 +151,9 @@ class QLearningAgent:
                     self.expand_qtable()
                 
                 self.update_q_value(state_offset, action, reward, next_state_offset)
+                print("   updated q_table: ")
+                print_qtable_window(self.q_table, next_state)
+
                 state = next_state
                 print(f" --- State (px): {state} --- ")
             state = grid.reset()

@@ -90,7 +90,7 @@ class Mover(Node):
 
     # angles in radians
     def rotate(self,angle):
-        print(f"           Rotating {angle} rad, {angle*180/math.pi} degrees")
+        # print(f"           Rotating {angle} rad, {angle*180/math.pi} degrees")
 
         secs = abs(angle) / self.angular_velocity
         duration = Duration(seconds=secs)
@@ -109,7 +109,7 @@ class Mover(Node):
 
     # distance in m 
     def translate(self,distance): 
-        print(f"           Moving forward {distance}m")
+        # print(f"           Moving forward {distance}m")
         
         secs = abs(distance) / self.linear_velocity
         duration = Duration(seconds=secs)
@@ -137,7 +137,7 @@ class Mover(Node):
         return  math.sqrt((p[0])**2 + (p[1])**2)
 
     def move_to_point(self,x,y):
-        print(f"           Moving to point: {x}, {y}")
+        # print(f"           Moving to point: {x}, {y}")
         odom_p = np.array([x, y, 0, 1])
         bl_T2_odom = self.get_transformation(TF_BASE_LINK, TF_ODOM)
         bl_p = bl_T2_odom.dot(odom_p.transpose())
@@ -217,7 +217,7 @@ class GridMapper(Node):
         return self.state
 
     def is_terminal(self, state):
-        print(f"        State: {state}, Goal: {self.goal}")
+        # print(f"        State: {state}, Goal: {self.goal}")
         return state in self.obstacles or state == self.goal
     
     def get_next_state(self, state, action):  # m
@@ -252,11 +252,11 @@ class GridMapper(Node):
                 new_dist = abs(state[0] - self.goal[0]) + abs(state[1] - self.goal[1])
                 reward = prev_dist - new_dist
                 return reward
-        print(f"        Reward: {reward}")
+        # print(f"        Reward: {reward}")
         return reward 
     
     def execute_action(self, action):
-        print(f"        [Executing action]")
+        # print(f"        [Executing action]")
         self.mover.move_to_point(self.pos_x, self.pos_y)
 
     def step(self, action, reward_type):

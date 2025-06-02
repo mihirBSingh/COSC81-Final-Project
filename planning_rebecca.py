@@ -224,12 +224,12 @@ class Plan(Node):
 
     #following the pose sequence
     def follow_path(self, pose_sequence):
-        print(f"Following path with {len(pose_sequence)} poses.")
+        # print(f"Following path with {len(pose_sequence)} poses.")
         for pose in pose_sequence:
             try:
-                print("  looking up transform")
+                # print("  looking up transform")
                 while not self.tf_buffer.can_transform(MAP_FRAME_ID, TF_BASE_LINK, rclpy.time.Time()):
-                    print("  waiting for transform")
+                    # print("  waiting for transform")
                     pass
                 tf_msg = self.tf_buffer.lookup_transform(MAP_FRAME_ID, TF_BASE_LINK, rclpy.time.Time())
                 current_x = tf_msg.transform.translation.x
@@ -251,9 +251,9 @@ class Plan(Node):
 
     #find the pose sequence, publish the pose sequence, and then follow it
     def path_follower(self, x,y,algo):
-        print("  in path follower")  
+        # print("  in path follower")  
         if self.map is None:
-            print("no map")
+            # print("no map")
             return
 
         try:
@@ -270,7 +270,7 @@ class Plan(Node):
         self.goal = (float(goal_x), float(goal_y) )
 
         #switch algorithm here between BFS and DFS
-        print(f"  start: {self.start}, goal: {self.goal}")
+        # print(f"  start: {self.start}, goal: {self.goal}")
         poses = plan_path(self.map, self.start, self.goal, algo)
 
         pose_array = PoseArray()
@@ -279,7 +279,7 @@ class Plan(Node):
         pose_array.poses = poses
 
         self.pose_pub.publish(pose_array)
-        print(f"  Published path with {len(poses)} poses.")
+        # print(f"  Published path with {len(poses)} poses.")
 
         #follow the path after its been published
         self.follow_path(poses)
