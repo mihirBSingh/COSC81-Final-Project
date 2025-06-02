@@ -242,7 +242,7 @@ class GridMapper(Node):
             if self.map[state[1], state[0]] == 100:
                 reward = -10
             elif state == self.goal:
-                reward = -100
+                reward = 10
             else:
                 reward = 0
 
@@ -335,7 +335,7 @@ class GridMapper(Node):
         self.get_logger().info(f'Map expanded to {self.width}x{self.height}, origin: ({self.origin_x}, {self.origin_y})')
 
     def laser_callback(self, msg):
-        print(f"---> ---> [Laser callback] <--- <---")
+        # print(f"---> ---> [Laser callback] <--- <---")
         if not self.has_pose: 
             return 
         

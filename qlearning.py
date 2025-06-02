@@ -27,7 +27,7 @@ def print_grid_window(map_data, center, window_size=5):
 
 
 class QLearningAgent:
-    def __init__(self, discount_rate=0.9, learning_rate=0.1, exploration_rate=0.1, initial_size=1000, res=0.05):
+    def __init__(self, discount_rate=0.9, learning_rate=0.1, exploration_rate=0.5, initial_size=1000, res=0.05):
         grid_size = int(initial_size * res)
         self.q_table = np.zeros((grid_size, grid_size, 4))  # x,y,q-value -- x,y in m
         self.origin_x = round(initial_size / 2.0 * res)
@@ -144,7 +144,7 @@ def main(args=None):
     # odom px
     startx = 0 
     starty = 0 
-    goal = (0,1)  # m
+    goal = (0,3)  # m
 
     gm_node = GridMapper(goal=goal, pos_x=startx, pos_y=starty, initial_size=initial_size, res=res)
     q = QLearningAgent(initial_size=initial_size, res=res)
