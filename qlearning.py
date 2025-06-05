@@ -32,16 +32,14 @@ def print_qtable_window(q_table, state):
         q_table: 3D numpy array (x, y, actions)
         state: tuple of (x, y) coordinates
     """
-    x, y = state
     action_names = ["UP", "RIGHT", "DOWN", "LEFT"]
     
     print(f"\n=== Q-values at state {state} ===")
-    if 0 <= x < q_table.shape[0] and 0 <= y < q_table.shape[1]:
-        for action, name in enumerate(action_names):
-            print(f"{name:5}: {q_table[y, x, action]:6.2f}")
-    else:
-        print("Position out of bounds")
+    for action, name in enumerate(action_names):
+        print(f"{name:5}: {q_table[state][action]:6.2f}")
+    
     print("=== End Q-values ===\n")
+
 
 
 class QLearningAgent:
@@ -82,7 +80,7 @@ class QLearningAgent:
 
             # Debug info: print the grid window around considered next state
             # print(f"Trying action {action} -> next state (grid coords): {next_state}")
-            print_grid_window(grid.map, next_state, window_size=5)
+            # print_grid_window(grid.map, next_state, window_size=5)
 
             # Check that next_state is within map bounds
             if not (0 <= next_state[0] < grid.width and 0 <= next_state[1] < grid.height):
@@ -101,7 +99,7 @@ class QLearningAgent:
                 print(f"      Blocked by obstacle or unknown cell (val={cell_val}) at {next_state}, trying next action...")
 
         # If all actions are blocked, default to action 0 (UP)
-        print("      All directions blocked. Returning default action 0 (UP).")
+        print("      All directions blocked. Returning action 'None'.")
         return None
 
     def update_q_value(self, state, action, reward, next_state):
@@ -109,9 +107,13 @@ class QLearningAgent:
         max_future_q = np.max(self.q_table[next_state])  # Best Q-value for next state
         current_q = self.q_table[state][action]
         # Q-learning formula
-        self.q_table[state][action] = current_q + self.learning_rate * (
+        td_update = current_q + self.learning_rate * (
             reward + self.discount_factor * max_future_q - current_q
         )
+        print(f"      Q-value update: {td_update}")
+        self.q_table[state][action] = td_update  # NOTE: state is x,y AND qtable is x,y,action (not y,x,action)
+
+        print_qtable_window(self.q_table, state)
     
     def expand_qtable(self):
         current_size = self.q_table.shape[0]
@@ -151,10 +153,9 @@ class QLearningAgent:
                     self.expand_qtable()
                 
                 self.update_q_value(state_offset, action, reward, next_state_offset)
-                print("   updated q_table: ")
-                print_qtable_window(self.q_table, next_state)
 
                 state = next_state
+                state_offset = next_state_offset
                 print(f" --- State (px): {state} --- ")
             state = grid.reset()
 

@@ -200,11 +200,10 @@ class GridMapper(Node):
         print(f"Occupancy Grid Mapper initialized with shape: {self.map.shape} and origin: {self.origin_x}, {self.origin_y}\n")
 
     def reset(self):
-        self.state = self.start_state
-        # TODO move robot back to start with pathfinding using pa3 planning
-
         print(f"Resetting to start position.")
+        self.state = self.start_state
 
+    
         self.planner.set_map(Grid(self.map, self.width, self.height, self.res, (self.origin_x, self.origin_y)))
 
         self.planner.path_follower(self.start_state[0], self.start_state[1], "BFS")
@@ -236,9 +235,14 @@ class GridMapper(Node):
     
     def compute_reward(self, prev_state, action, type):  
         # Obstacle or goal
-        state_world = self.get_next_state(prev_state, action)  # m 
-        state = self.world_to_grid(state_world[0], state_world[1])  # px
-        if  type == "obstacle":
+        next_state_world = self.get_next_state(prev_state, action)  # m 
+        next_state_px = self.world_to_grid(next_state_world[0], next_state_world[1])  # px
+
+        prev_state_px = self.world_to_grid(prev_state[0], prev_state[1])  # px
+        # print("prev state: ", prev_state)
+        goalx_px, goaly_px = self.world_to_grid(self.goal[0], self.goal[1])
+        # print("goal: ", goalx_px, goaly_px)
+        if type == "obstacle":
             if self.map[state[1], state[0]] == 100:
                 reward = -10
             elif state == self.goal:
@@ -247,16 +251,20 @@ class GridMapper(Node):
                 reward = 0
 
         elif type == "manhattan":
-                # Manhattan distance to goal
-                prev_dist = abs(prev_state[0] - self.goal[0]) + abs(prev_state[1] - self.goal[1])
-                new_dist = abs(state[0] - self.goal[0]) + abs(state[1] - self.goal[1])
-                reward = prev_dist - new_dist
+                if next_state_px == (goalx_px, goaly_px):
+                    reward = 10
+                else:
+                    # Manhattan distance to goal
+                    prev_dist = abs(prev_state_px[0] - goalx_px) + abs(prev_state_px[1] - goaly_px)
+                    new_dist = abs(next_state_px[0] - goalx_px) + abs(next_state_px[1] - goaly_px)
+                    reward = prev_dist - new_dist
+                    # print(prev_dist, new_dist, reward)
                 return reward
-        # print(f"        Reward: {reward}")
+        print(f"        Reward: {reward}")
         return reward 
     
     def execute_action(self, action):
-        # print(f"        [Executing action]")
+        # print(f"        [Executing action to move to current state]")
         self.mover.move_to_point(self.pos_x, self.pos_y)
 
     def step(self, action, reward_type):

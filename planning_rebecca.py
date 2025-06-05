@@ -283,6 +283,7 @@ class Plan(Node):
 
         #follow the path after its been published
         self.follow_path(poses)
+        print(f"   Path followed with {len(poses)} poses.")
 
 
 def main(args=None):
