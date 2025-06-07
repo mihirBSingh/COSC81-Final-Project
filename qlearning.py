@@ -258,7 +258,7 @@ def main(args=None):
     # odom px
     startx = 0 
     starty = 0 
-    goal = (-1,-1)  # m
+    goal = (1,2)  # m
 
     gm_node = GridMapper(goal=goal, pos_x=startx, pos_y=starty, initial_size=initial_size, res=res)
     q = QLearningAgent(initial_size=initial_size, res=res)
