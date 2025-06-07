@@ -163,8 +163,9 @@ class GridMapper(Node):
         self.width = self.initial_size
         self.height = self.initial_size
         
-        self.pos_x = pos_x # m
-        self.pos_y = pos_y # m
+        # m, odom
+        self.pos_x = pos_x 
+        self.pos_y = pos_y 
         self.pos_theta = pos_theta
 
         self.has_pose = True
@@ -184,7 +185,7 @@ class GridMapper(Node):
         self.laser_sub = self.create_subscription(LaserScan, DEFAULT_SCAN_TOPIC, self.laser_callback, 10)
         
         # set up qlearning states and obstacles 
-        self.start_state = (pos_x, pos_y)   
+        self.start_state = (pos_x, pos_y)   # odom, m
         self.state = self.start_state
         self.goal = goal
 
@@ -197,17 +198,26 @@ class GridMapper(Node):
 
         self.mover = Mover() 
 
-        print(f"Occupancy Grid Mapper initialized with shape: {self.map.shape} and origin: {self.origin_x}, {self.origin_y}\n")
+        print(f"Occupancy Grid Mapper initialized with shape: {self.map.shape} and origin: {self.origin_x}, {self.origin_y}")
 
     def reset(self):
-        print(f"Resetting to start position.")
+        print(f"  [Reset]")
         self.state = self.start_state
 
-    
+        # update planner map, only if neighbors are not all -1 (indicates laserscan callback not called yet and map not updated)
+        offset = self.width // 2  # turn 0,0 into 
+        rate = self.create_rate(10)  # 10Hz
+        while np.all(self.map[self.state[1] + offset -1:self.state[1]+offset+2, self.state[0] + offset -1:self.state[0]+offset+2] == -1): 
+            print(f"    Map not updated, waiting for laserscan callback")
+            rate.sleep()  # allow other callbacks to run
+
+        # print(f"  Map updated, planning path to start")
         self.planner.set_map(Grid(self.map, self.width, self.height, self.res, (self.origin_x, self.origin_y)))
 
-        self.planner.path_follower(self.start_state[0], self.start_state[1], "BFS")
+        # plan path to start  
+        self.planner.path_follower(self.start_state[0], self.start_state[1],  "BFS")
 
+        # move to start
         self.state = self.start_state
         self.pos_x, self.pos_y = self.start_state
 

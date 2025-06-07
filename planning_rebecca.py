@@ -270,7 +270,7 @@ class Plan(Node):
         self.goal = (float(goal_x), float(goal_y) )
 
         #switch algorithm here between BFS and DFS
-        # print(f"  start: {self.start}, goal: {self.goal}")
+        print(f"    Finding path from{self.start} --> {self.goal}")
         poses = plan_path(self.map, self.start, self.goal, algo)
 
         pose_array = PoseArray()
@@ -279,11 +279,11 @@ class Plan(Node):
         pose_array.poses = poses
 
         self.pose_pub.publish(pose_array)
-        # print(f"  Published path with {len(poses)} poses.")
+        print(f"    Published path with {len(poses)} poses.")
 
         #follow the path after its been published
         self.follow_path(poses)
-        print(f"   Path followed with {len(poses)} poses.")
+        print(f"    Path followed with {len(poses)} poses.")
 
 
 def main(args=None):

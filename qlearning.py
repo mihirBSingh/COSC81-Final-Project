@@ -5,6 +5,7 @@ from mapping import GridMapper
 # from rclpy.node import Node
 import threading
 
+actions = ["UP", "RIGHT", "DOWN", "LEFT"]
 
 def print_grid_window(map_data, center, window_size=5):
     cx, cy = center
@@ -32,11 +33,11 @@ def print_qtable_window(q_table, state):
         q_table: 3D numpy array (x, y, actions)
         state: tuple of (x, y) coordinates
     """
-    action_names = ["UP", "RIGHT", "DOWN", "LEFT"]
     
     print(f"\n=== Q-values at state {state} ===")
-    for action, name in enumerate(action_names):
-        print(f"{name:5}: {q_table[state][action]:6.2f}")
+    for action, name in enumerate(actions):
+        x, y = state
+        print(f"{name:5}: {q_table[y][x][action]:6.2f}")
     
     print("=== End Q-values ===\n")
 
@@ -92,13 +93,12 @@ class QLearningAgent:
 
             # Only allow action if cell is free (0). Block if obstacle (100) or unknown (-1)
             if cell_val == 0:
-                move_names = ["UP", "RIGHT", "DOWN", "LEFT"]
-                print(f"      Chose action: {action} ({move_names[action]}) for state: {state}")
+                print(f"      Chose action: {action} ({actions[action]}) for state: {state}")
                 return action
             else:
-                print(f"      Blocked by obstacle or unknown cell (val={cell_val}) at {next_state}, trying next action...")
+                print(f"      Blocked by obstacle or unknown cell (val={cell_val}) at {next_state} with action {action} ({actions[action]}), trying next action...")
 
-        # If all actions are blocked, default to action 0 (UP)
+        # If all actions are blocked, default None 
         print("      All directions blocked. Returning action 'None'.")
         return None
 
@@ -111,7 +111,8 @@ class QLearningAgent:
             reward + self.discount_factor * max_future_q - current_q
         )
         print(f"      Q-value update: {td_update}")
-        self.q_table[state][action] = td_update  # NOTE: state is x,y AND qtable is x,y,action (not y,x,action)
+        x,y = state
+        self.q_table[y][x][action] = td_update 
 
         print_qtable_window(self.q_table, state)
     
@@ -136,9 +137,10 @@ class QLearningAgent:
         return 0 <= state[0] < self.q_table.shape[0] and 0 <= state[1] < self.q_table.shape[1]
 
     def train(self, num_episodes, grid, reward_type ="manhattan"):
-        print(f"Training for {num_episodes} episodes...")
-        state = (0,0)
-        for _ in range(num_episodes):
+        print(f"<<< Training for {num_episodes} episodes >>>\n")
+        for i in range(num_episodes):
+            print(f"Episode {i+1}/{num_episodes}")
+            state = grid.reset()
             print(f" --- State (px): {state} --- ")
             state_offset = (state[0] + self.origin_x, state[1] + self.origin_y)  # offset by origin 
             done = False
@@ -157,7 +159,6 @@ class QLearningAgent:
                 state = next_state
                 state_offset = next_state_offset
                 print(f" --- State (px): {state} --- ")
-            state = grid.reset()
 
 def main(args=None):
     rclpy.init(args=args)
