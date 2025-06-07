@@ -13,23 +13,22 @@ Maze map
 
 ## QLearning
 
-1. start up docker container
+1.  start up docker container
 
-   `docker compose up`
+    `docker compose up`
 
-2. kill docker gazebo simulator (we're using stage)
+2.  kill docker gazebo simulator (we're using stage)
 
-3. for each of the following commands, open a new terminal, run `docker compose exec ros bash`, then the command
+3.  for each of the following commands, open a new terminal, run `docker compose exec ros bash`, then the command
 
-   `ros2 launch stage_ros2 stage.launch.py world:=/root/catkin_ws/src/cs81-finalproj/maze enforce_prefixes:=false one_tf_tree:=true` - launches stage simulator
+    `ros2 launch stage_ros2 stage.launch.py world:=/root/catkin_ws/src/cs81-finalproj/maze enforce_prefixes:=false one_tf_tree:=true` - launches stage simulator
+    `ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 1 map rosbot/odom` - publishes the static transform from map and odom
 
-   `ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 1 map rosbot/odom` - publishes the static transform from map and odom
+    `python3 qlearning.py` - run qlearning.py
 
-   `python3 qlearning.py` - run qlearning.py
+    `rviz2` - run rviz2 to visualize the occupancy grid
 
-   `rviz2` - run rviz2 to visualize the occupancy grid
-
-      <!-- `ros2 run teleop_twist_keyboard teleop_twist_keyboard` - teleoperate/drive the rosbot in the simulation -->
+          <!-- `ros2 run teleop_twist_keyboard teleop_twist_keyboard` - teleoperate/drive the rosbot in the simulation -->
 
 ## Value Iteration
 
