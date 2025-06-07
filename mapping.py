@@ -21,7 +21,7 @@ from rclpy.time import Time
 
 from planning_rebecca import Plan, Grid
 
-## GAZEBO 
+## GAZEBO TOPICS 
 # DEFAULT_CMD_VEL_TOPIC = '/cmd_vel'
 # DEFAULT_SCAN_TOPIC = '/scan'
 
@@ -31,7 +31,7 @@ from planning_rebecca import Plan, Grid
 # TF_BASE_LINK = 'base_link'
 # TF_ODOM = 'odom'
 
-## STAGE 
+## STAGE TOPICS
 DEFAULT_CMD_VEL_TOPIC = 'cmd_vel'
 DEFAULT_SCAN_TOPIC = 'base_scan'
 

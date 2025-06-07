@@ -14,9 +14,17 @@ Below are instructions to train the two algorithms.
 
 2.  kill docker gazebo simulator (we're using stage)
 
-3.  for each of the following commands, open a new terminal, run `docker compose exec ros bash`, then the command
+3.  setup stage simulator (only setup once)
 
-    `ros2 launch stage_ros2 stage.launch.py world:=/root/catkin_ws/src/cs81-finalproj/maze enforce_prefixes:=false one_tf_tree:=true` - launches stage simulator
+    cd into stage-worlds folder
+
+    `bash install_stage.sh`
+
+    `source ../../../install/setup.bash`
+
+4.  for each of the following commands, open a new terminal, run `docker compose exec ros bash`, then the command
+
+    `ros2 launch stage_ros2 stage.launch.py world:=/root/catkin_ws/src/cs81-finalproj/stage-worlds/maze enforce_prefixes:=false one_tf_tree:=true` - launches stage simulator
 
     `ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 1 map rosbot/odom` - publishes the static transform from map and odom
 
