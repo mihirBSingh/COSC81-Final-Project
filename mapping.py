@@ -33,8 +33,8 @@ TF_ODOM = 'odom'
 LASER_ROBOT_OFFSET = -math.pi
 STEP = 1 # m 
 
-LINEAR_VELOCITY = 0.2 # m/s
-ANGULAR_VELOCITY = math.pi/6 # rad/s
+LINEAR_VELOCITY = 0.5 # m/s
+ANGULAR_VELOCITY = math.pi/3 # rad/s
 
 USE_SIM_TIME = True 
 
