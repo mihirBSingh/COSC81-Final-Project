@@ -15,6 +15,7 @@ from typing import List, Tuple, Dict
 import tf2_ros
 import math
 from rclpy.duration import Duration
+import csv
 
 # topics
 NODE_NAME = "ValueIteration"
@@ -41,10 +42,10 @@ ACTIONS = {
 
 # probabilities for actions 
 DIRECTION_PROBABILITIES = {
-    'N': [('N', 0.9), ('E', 0.05), ('W', 0.05)],
-    'S': [('S', 0.9), ('E', 0.05), ('W', 0.05)],
-    'E': [('E', 0.9), ('N', 0.05), ('S', 0.05)],
-    'W': [('W', 0.9), ('N', 0.05), ('S', 0.05)],
+    'N': [('N', 1.0), ('E', 0.0), ('W', 0.0)],
+    'S': [('S', 1.0), ('E', 0.0), ('W', 0.0)],
+    'E': [('E', 1.0), ('N', 0.0), ('S', 0.0)],
+    'W': [('W', 1.0), ('N', 0.0), ('S', 0.0)],
     'Stay': [('Stay', 1.0)]
 }
 
@@ -143,7 +144,7 @@ class ValueIteration(Node):
     # get block-based states (each state is a 5x5 block)
     def get_states(self):
         states = []
-        block_size = 5
+        block_size = 20
         for block_r in range((self.map.height + block_size - 1) // block_size):
             for block_c in range((self.map.width + block_size - 1) // block_size):
                 states.append((block_r, block_c))
@@ -247,7 +248,7 @@ class ValueIteration(Node):
     def spin(self):
         # Example start and goal positions
         start = (2, 2)
-        goal = (2, 5)
+        goal = (1, 1)
         print("Starting Value Iteration...")
         V, policy = self.value_iteration(start, goal)
         # Print the value function and policy
@@ -257,6 +258,15 @@ class ValueIteration(Node):
         print("\nPolicy:")
         for state, action in policy.items():
             print(f"Block {state}: {action}")
+            
+        # Save Policy to CSV
+        with open('policy.csv', 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(['State', 'Action'])  # Write header
+            for state, action in policy.items():
+                writer.writerow([str(state), action])  # Convert tuple to string
+        
+        
 
 def main(args=None):
     rclpy.init(args=args)
