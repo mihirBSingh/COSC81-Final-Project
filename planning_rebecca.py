@@ -20,7 +20,7 @@ from tf2_ros import TransformException
 NODE_NAME = "planner"
 MAP_TOPIC = "map"
 POSE_TOPIC = "pose_sequence"
-TF_BASE_LINK = 'base_link'
+TF_BASE_LINK = 'rosbot/base_link'
 MAP_FRAME_ID = "map"
 DEFAULT_CMD_VEL_TOPIC = 'cmd_vel'
 USE_SIM_TIME = True
