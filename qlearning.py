@@ -4,6 +4,7 @@ import rclpy
 from mapping import GridMapper
 # from rclpy.node import Node
 import threading
+import os
 
 actions = ["UP", "RIGHT", "DOWN", "LEFT"]
 
@@ -136,7 +137,47 @@ class QLearningAgent:
     def in_bounds(self, state):
         return 0 <= state[0] < self.q_table.shape[0] and 0 <= state[1] < self.q_table.shape[1]
 
-    def train(self, num_episodes, grid, reward_type ="manhattan"):
+    def save_policy(self, filepath):
+        """
+        Save the Q-table and metadata to a file.
+        Args:
+            filepath: Path where to save the policy
+        """
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        
+        # Save Q-table and metadata
+        np.savez(filepath,
+                q_table=self.q_table,
+                origin_x=self.origin_x,
+                origin_y=self.origin_y,
+                learning_rate=self.learning_rate,
+                discount_factor=self.discount_factor,
+                exploration_rate=self.exploration_rate,
+                res=self.res)
+        print(f"Policy saved to {filepath}")
+
+    def load_policy(self, filepath):
+        """
+        Load the Q-table and metadata from a file.
+        Args:
+            filepath: Path to the saved policy file
+        """
+        if not os.path.exists(filepath):
+            raise FileNotFoundError(f"No policy file found at {filepath}")
+            
+        data = np.load(filepath)
+        self.q_table = data['q_table']
+        self.origin_x = float(data['origin_x'])
+        self.origin_y = float(data['origin_y'])
+        self.learning_rate = float(data['learning_rate'])
+        self.discount_factor = float(data['discount_factor'])
+        self.exploration_rate = float(data['exploration_rate'])
+        self.res = float(data['res'])
+        print(f"Policy loaded from {filepath}")
+        print(f"Q-table shape: {self.q_table.shape}")
+
+    def train(self, num_episodes, grid, reward_type="manhattan"):
         print(f"<<< Training for {num_episodes} episodes >>>\n")
         for i in range(num_episodes):
             print(f"Episode {i+1}/{num_episodes}")
@@ -191,6 +232,15 @@ def main(args=None):
 
     num_episodes = 10
     q.train(num_episodes, gm_node)
+
+    # Save the learned policy
+    policy_dir = "policies"
+    policy_file = os.path.join(policy_dir, "qlearning_policy.npz")
+    q.save_policy(policy_file)
+
+    # Example of how to load a saved policy
+    # new_agent = QLearningAgent(initial_size=initial_size, res=res)
+    # new_agent.load_policy(policy_file)
 
     # try:
     #     rclpy.spin(gm_node)
