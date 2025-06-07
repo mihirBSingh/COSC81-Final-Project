@@ -200,7 +200,7 @@ class GridMapper(Node):
         print(f"Occupancy Grid Mapper initialized with shape: {self.map.shape} and origin: {self.origin_x}, {self.origin_y}\n")
 
     def reset(self):
-        print(f"Resetting to start position.")
+        print(f"  [Reset started]")
         self.state = self.start_state
 
     
@@ -211,7 +211,7 @@ class GridMapper(Node):
         self.state = self.start_state
         self.pos_x, self.pos_y = self.start_state
 
-        print("Reset complete.\n")
+        print("  [Reset completed]")
 
         return self.state
 
@@ -259,7 +259,6 @@ class GridMapper(Node):
                     new_dist = abs(next_state_px[0] - goalx_px) + abs(next_state_px[1] - goaly_px)
                     reward = prev_dist - new_dist
                     # print(prev_dist, new_dist, reward)
-                return reward
         print(f"        Reward: {reward}")
         return reward 
     
