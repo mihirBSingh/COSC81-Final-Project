@@ -21,14 +21,25 @@ from rclpy.time import Time
 
 from planning_rebecca import Plan, Grid
 
-DEFAULT_CMD_VEL_TOPIC = '/cmd_vel'
-DEFAULT_SCAN_TOPIC = '/scan'
+## GAZEBO 
+# DEFAULT_CMD_VEL_TOPIC = '/cmd_vel'
+# DEFAULT_SCAN_TOPIC = '/scan'
 
-DEFAULT_MAP_TOPIC = '/map'
-DEFAULT_ODOM_TOPIC = '/odometry/filtered'
+# DEFAULT_MAP_TOPIC = '/map'
+# DEFAULT_ODOM_TOPIC = '/odometry/filtered'
 
-TF_BASE_LINK = 'base_link'
-TF_ODOM = 'odom'
+# TF_BASE_LINK = 'base_link'
+# TF_ODOM = 'odom'
+
+## STAGE 
+DEFAULT_CMD_VEL_TOPIC = 'cmd_vel'
+DEFAULT_SCAN_TOPIC = 'base_scan'
+
+DEFAULT_MAP_TOPIC = 'map'
+DEFAULT_ODOM_TOPIC = 'odometry/filtered'
+
+TF_BASE_LINK = 'rosbot/base_link'
+TF_ODOM = 'rosbot/odom'
 
 LASER_ROBOT_OFFSET = -math.pi
 STEP = 1 # m 
@@ -61,7 +72,7 @@ class Mover(Node):
             # print(f"   Getting transformation from {start_frame} --> {target_frame}")
             try:
                 while not self.tf_buffer.can_transform(target_frame, start_frame, time): 
-                    pass
+                    print("waiting for transformation from ", start_frame, " to ", target_frame)
                 tf_msg = self.tf_buffer.lookup_transform(target_frame, start_frame, time)
             except TransformException as ex:
                 self.get_logger().info(
@@ -146,6 +157,7 @@ class Mover(Node):
 
         theta = self.get_angle(bl_p[1], bl_p[0])
         dist = self.get_distance(bl_p)
+        print(f"        Rotating {theta} rad, {theta*180/math.pi} degrees")
 
         self.rotate(theta)
         self.translate(dist)
@@ -162,6 +174,14 @@ class GridMapper(Node):
         self.origin_y = -self.initial_size * self.res / 2.0
         self.width = self.initial_size
         self.height = self.initial_size
+
+         # Workaround not to use roslaunch
+        use_sim_time_param = rclpy.parameter.Parameter(
+            'use_sim_time',
+            rclpy.Parameter.Type.BOOL,
+            USE_SIM_TIME
+        )
+        self.set_parameters([use_sim_time_param])
         
         # m, odom
         self.pos_x = pos_x 
@@ -287,6 +307,7 @@ class GridMapper(Node):
         self.pos_x, self.pos_y = next_state
         done = self.is_terminal(next_state)
         self.execute_action(action)
+        print("finished executing action")
         return next_state, reward, done
 
     def get_curr_pose(self, msg):
