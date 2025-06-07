@@ -157,7 +157,7 @@ class Mover(Node):
 
         theta = self.get_angle(bl_p[1], bl_p[0])
         dist = self.get_distance(bl_p)
-        print(f"        Rotating {theta} rad, {theta*180/math.pi} degrees")
+        # print(f"        Rotating {theta} rad, {theta*180/math.pi} degrees")
 
         self.rotate(theta)
         self.translate(dist)
@@ -307,7 +307,6 @@ class GridMapper(Node):
         self.pos_x, self.pos_y = next_state
         done = self.is_terminal(next_state)
         self.execute_action(action)
-        print("finished executing action")
         return next_state, reward, done
 
     def get_curr_pose(self, msg):
