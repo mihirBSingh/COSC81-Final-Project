@@ -6,7 +6,7 @@ from mapping import GridMapper
 import threading
 import os
 
-actions = ["UP", "RIGHT", "DOWN", "LEFT"]
+actions_list = ["UP", "RIGHT", "DOWN", "LEFT"]
 
 def print_grid_window(map_data, center, window_size=5):
     cx, cy = center
@@ -36,7 +36,7 @@ def print_qtable_window(q_table, state):
     """
     
     print(f"\n=== Q-values at state {state} ===")
-    for action, name in enumerate(actions):
+    for action, name in enumerate(actions_list):
         x, y = state
         print(f"{name:5}: {q_table[y][x][action]:6.2f}")
     
@@ -94,10 +94,10 @@ class QLearningAgent:
 
             # Only allow action if cell is free (0). Block if obstacle (100) or unknown (-1)
             if cell_val == 0:
-                print(f"      Chose action: {action} ({actions[action]}) for state: {state}")
+                print(f"      Chose action: {action} ({actions_list[action]}) for state: {state}")
                 return action
             else:
-                print(f"      Blocked by obstacle or unknown cell (val={cell_val}) at {next_state} with action {action} ({actions[action]}), trying next action...")
+                print(f"      Blocked by obstacle or unknown cell (val={cell_val}) at {next_state} with action {action} ({actions_list[action]}), trying next action...")
 
         # If all actions are blocked, default None 
         print("      All directions blocked. Returning action 'None'.")
