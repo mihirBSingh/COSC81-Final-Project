@@ -159,6 +159,10 @@ class QLearningAgent:
                 print(f" --- State (px): {state} --- ")
             state = grid.reset()
 
+        print(f"Training complete.\n")
+        print(f"Q-table shape: {self.q_table.shape}")
+        print(f"Q-table: {self.q_table}")
+
 def main(args=None):
     rclpy.init(args=args)
         
@@ -168,7 +172,7 @@ def main(args=None):
     # odom px
     startx = 0 
     starty = 0 
-    goal = (0,3)  # m
+    goal = (-3,1)  # m
 
     gm_node = GridMapper(goal=goal, pos_x=startx, pos_y=starty, initial_size=initial_size, res=res)
     q = QLearningAgent(initial_size=initial_size, res=res)
@@ -184,7 +188,8 @@ def main(args=None):
     # learning_rate = 0.1 
     # exploration_rate = 0.1
 
-    q.train(100, gm_node)
+    num_episodes = 10
+    q.train(num_episodes, gm_node)
 
     # try:
     #     rclpy.spin(gm_node)
