@@ -34,7 +34,6 @@ def print_qtable_window(q_table, state):
         q_table: 3D numpy array (x, y, actions)
         state: tuple of (x, y) coordinates
     """
-    action_names = ["UP", "RIGHT", "DOWN", "LEFT"]
     
     print(f"\n=== Q-values at state {state} ===")
     for action, name in enumerate(actions_list):
@@ -100,7 +99,7 @@ class QLearningAgent:
             else:
                 print(f"      Blocked by obstacle or unknown cell (val={cell_val}) at {next_state} with action {action} ({actions_list[action]}), trying next action...")
 
-        # If all actions are blocked, default to action 0 (UP)
+        # If all actions are blocked, default None 
         print("      All directions blocked. Returning action 'None'.")
         return None
 
@@ -113,7 +112,8 @@ class QLearningAgent:
             reward + self.discount_factor * max_future_q - current_q
         )
         print(f"      Q-value update: {td_update}")
-        self.q_table[state][action] = td_update  # NOTE: state is x,y AND qtable is x,y,action (not y,x,action)
+        x,y = state
+        self.q_table[y][x][action] = td_update 
 
         print_qtable_window(self.q_table, state)
     
@@ -137,10 +137,51 @@ class QLearningAgent:
     def in_bounds(self, state):
         return 0 <= state[0] < self.q_table.shape[0] and 0 <= state[1] < self.q_table.shape[1]
 
-    def train(self, num_episodes, grid, reward_type ="manhattan"):
-        print(f"Training for {num_episodes} episodes...")
-        state = (0,0)
-        for _ in range(num_episodes):
+    def save_policy(self, filepath):
+        """
+        Save the Q-table and metadata to a file.
+        Args:
+            filepath: Path where to save the policy
+        """
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        
+        # Save Q-table and metadata
+        np.savez(filepath,
+                q_table=self.q_table,
+                origin_x=self.origin_x,
+                origin_y=self.origin_y,
+                learning_rate=self.learning_rate,
+                discount_factor=self.discount_factor,
+                exploration_rate=self.exploration_rate,
+                res=self.res)
+        print(f"Policy saved to {filepath}")
+
+    def load_policy(self, filepath):
+        """
+        Load the Q-table and metadata from a file.
+        Args:
+            filepath: Path to the saved policy file
+        """
+        if not os.path.exists(filepath):
+            raise FileNotFoundError(f"No policy file found at {filepath}")
+            
+        data = np.load(filepath)
+        self.q_table = data['q_table']
+        self.origin_x = float(data['origin_x'])
+        self.origin_y = float(data['origin_y'])
+        self.learning_rate = float(data['learning_rate'])
+        self.discount_factor = float(data['discount_factor'])
+        self.exploration_rate = float(data['exploration_rate'])
+        self.res = float(data['res'])
+        print(f"Policy loaded from {filepath}")
+        print(f"Q-table shape: {self.q_table.shape}")
+
+    def train(self, num_episodes, grid, reward_type="manhattan"):
+        print(f"<<< Training for {num_episodes} episodes >>>\n")
+        for i in range(num_episodes):
+            print(f"Episode {i+1}/{num_episodes}")
+            state = grid.reset()
             print(f" --- State (px): {state} --- ")
             state_offset = (state[0] + self.origin_x, state[1] + self.origin_y)  # offset by origin 
             done = False
@@ -159,7 +200,10 @@ class QLearningAgent:
                 state = next_state
                 state_offset = next_state_offset
                 print(f" --- State (px): {state} --- ")
-            state = grid.reset()
+
+        print(f"Training complete.\n")
+        print(f"Q-table shape: {self.q_table.shape}")
+        print(f"Q-table: {self.q_table}")
 
         print(f"Training complete.\n")
         print(f"Q-table shape: {self.q_table.shape}")
