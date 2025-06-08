@@ -36,6 +36,25 @@ Below are instructions to train the two algorithms.
 
 ## Value Iteration
 
+1. Terminal 1 - start up docker container:
+   `docker compose up`
+
+2. Terminal 2 - launch stage map:
+   `ros2 launch stage_ros2 stage.launch.py world:=/root/catkin_ws/src/pa3/maze enforce_prefixes:=false one_tf_tree:=true`
+
+3. Terminal 3 - run Python script:
+   `python3 valueIteration.py`
+
+4. Terminal 4 - start map server:
+   `ros2 run nav2_map_server map_server --ros-args -p yaml_filename:=pa3/maze.yml`
+
+5. Terminal 5 - has 3 commands:
+   `ros2 run nav2_util lifecycle_bringup map_server` and
+
+   `ros2 service call /map_server/load_map nav2_msgs/srv/LoadMap "{map_url: pa3/maze.yml}"` and
+
+   `ros2 run tf2_ros static_transform_publisher 2 2 0 0 0 0 map rosbot/odom`
+
 ## Submodule Instructions
 
 Megan forked the VNC-ROS repo by AQL and wanted to use the docker container/easy access to previous code for the final project. Mihir created a repo for our final project, which I made into a submodule: a repo inside a repo. In the parent repo, the child repo is a gitlink (a pointer to a specific commit). If you cd into the submodule folder, it looks like the remote branch. Any commits made within that folder update only that child repo, and any commits made outside that folder update only the parent repo.
