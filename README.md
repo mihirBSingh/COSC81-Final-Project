@@ -28,9 +28,9 @@ Below are instructions to train the two algorithms.
 
     `ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 1 map rosbot/odom` - publishes the static transform from map and odom
 
-    `python3 qlearning.py` - run qlearning.py
+    `rviz2` - run rviz2 to visualize the occupancy grid; add Map and PoseArray topics
 
-    `rviz2` - run rviz2 to visualize the occupancy grid
+    `python3 qlearning.py` - run qlearning.py
 
     <!-- `ros2 run teleop_twist_keyboard teleop_twist_keyboard` - teleoperate/drive the rosbot in the simulation -->
 

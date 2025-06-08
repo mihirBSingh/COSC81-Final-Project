@@ -1,3 +1,4 @@
+import time
 import numpy as np
 import random
 import rclpy
@@ -48,6 +49,7 @@ def print_qtable_window(q_table, state):
 
 class QLearningAgent(Node):
     def __init__(self, discount_rate=0.9, learning_rate=0.1, exploration_rate=0.3, initial_size=1000, res=0.05):
+        super().__init__('qlearning_agent')  # Initialize the ROS node
         grid_size = int(initial_size * res)
         self.q_table = np.zeros((grid_size, grid_size, 4))  # x,y,q-value -- x,y in m
         self.origin_x = round(initial_size / 2.0 * res)
@@ -57,7 +59,10 @@ class QLearningAgent(Node):
         self.discount_factor = discount_rate
         self.exploration_rate = exploration_rate 
         self.res = res 
-        
+
+        # Add pose array publisher
+        self.pose_pub = self.create_publisher(PoseArray, 'optimal_policy', 10)
+
         print(f"Q-table initialized with shape: {self.q_table.shape} and origin: {self.origin_x}, {self.origin_y}\n")
 
     def choose_action(self, state, grid):
@@ -164,8 +169,102 @@ class QLearningAgent(Node):
                 print(f" --- State (px): {state} --- ")
 
         print(f"Training complete.\n")
-        print(f"Q-table shape: {self.q_table.shape}")
-        print(f"Q-table: {self.q_table}")
+
+    def create_optimal_policy(self, grid):
+        # Get start and goal states in grid coordinates
+        start_x, start_y = grid.start_state
+        goal_x, goal_y = grid.goal
+        
+        # Trace path from start to goal
+        current_x, current_y = start_x, start_y
+        path = [(current_x, current_y)]
+        
+        max_steps = 100  # Prevent infinite loops
+        step_count = 0
+
+        print("starting")
+        
+        while step_count < max_steps:
+            print(f"Step {step_count}")
+            # Get optimal action at current state
+            q_values = self.q_table[current_y, current_x]
+                
+            optimal_action = np.argmax(q_values)
+            
+            # Get next state based on optimal action
+            if optimal_action == 0:  # UP
+                next_y = current_y + 1
+                next_x = current_x
+            elif optimal_action == 1:  # RIGHT
+                next_y = current_y
+                next_x = current_x + 1
+            elif optimal_action == 2:  # DOWN
+                next_y = current_y - 1
+                next_x = current_x
+            else:  # LEFT
+                next_y = current_y
+                next_x = current_x - 1
+                      
+            # Add to path and continue
+            path.append((next_x, next_y))
+            print(f"next_x: {next_x}, next_y: {next_y}")
+            current_x, current_y = next_x, next_y
+            
+            # Check if we reached the goal
+            if current_x == goal_x and current_y == goal_y: 
+                break
+                
+            step_count += 1
+
+        print(path)
+        return path 
+    
+    def path_to_poses(self, path):
+        pose_array = PoseArray()
+        pose_array.header.frame_id = 'map'
+        pose_array.header.stamp = self.get_clock().now().to_msg()
+
+        # Convert path to poses
+        for i in range(len(path)):
+            x, y = path[i]
+            # Convert grid coordinates to world coordinates offset by origin 
+            world_x = x + self.origin_x
+            world_y = y + self.origin_y
+            
+            # Create pose
+            pose = Pose()
+            pose.position.x = float(world_x)
+            pose.position.y = float(world_y)
+            pose.position.z = 0.0
+
+            # Set orientation based on direction to next point or previous point
+            if i < len(path) - 1:
+                next_x, next_y = path[i + 1]
+                dx = next_x - x
+                dy = next_y - y
+            else:
+                prev_x, prev_y = path[i - 1]
+                dx = x - prev_x
+                dy = y - prev_y
+            
+            # Calculate angle based on direction
+            if dx == 0:
+                angle = math.pi/2 if dy < 0 else -math.pi/2
+            else:
+                angle = 0 if dx > 0 else math.pi
+                
+            q = tf_transformations.quaternion_from_euler(0, 0, angle)
+            pose.orientation.x = q[0]
+            pose.orientation.y = q[1]
+            pose.orientation.z = q[2]
+            pose.orientation.w = q[3]
+
+            pose_array.poses.append(pose)
+
+        # Publish the pose array
+        self.pose_pub.publish(pose_array)
+        print(f"Published optimal path with {len(pose_array.poses)} poses")
+
 
 def main(args=None):
     rclpy.init(args=args)
@@ -176,7 +275,7 @@ def main(args=None):
     # odom px
     startx = 0 
     starty = 0 
-    goal = (1,3)  # m
+    goal = (1,3)  # m, odom
 
     gm_node = GridMapper(goal=goal, pos_x=startx, pos_y=starty, initial_size=initial_size, res=res)
     q = QLearningAgent(initial_size=initial_size, res=res)
@@ -184,17 +283,20 @@ def main(args=None):
     executor = rclpy.executors.MultiThreadedExecutor()
     executor.add_node(gm_node)
     executor.add_node(gm_node.planner)
+    executor.add_node(q)  # Add the QLearningAgent node to the executor
     executor_thread = threading.Thread(target=executor.spin, daemon=True)
     executor_thread.start()
 
-    # hyperparameters TODO: tune
-    # discount_factor = 0.4
-    # learning_rate = 0.1 
-    # exploration_rate = 0.1
+    # num_episodes = 2
+    # q.train(num_episodes, gm_node)
+    
+    # Publish the learned policy
+    # print("\nPublishing optimal policy to RViz2...")
+    # path = q.create_optimal_policy(gm_node)
+    path = [(0,0), (0,1), (0,2), (0,3), (1,3)]
+    q.path_to_poses(path)
 
-    num_episodes = 1
-    q.train(num_episodes, gm_node)
-
+    time.sleep(10)
 
 if __name__ == '__main__':
     main()
