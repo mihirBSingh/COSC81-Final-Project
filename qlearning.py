@@ -60,6 +60,19 @@ class QLearningAgent(Node):
         self.exploration_rate = exploration_rate 
         self.res = res 
 
+        # Set up ROS parameters
+        use_sim_time_param = rclpy.parameter.Parameter(
+            'use_sim_time',
+            rclpy.Parameter.Type.BOOL,
+            True
+        )
+        self.set_parameters([use_sim_time_param])
+        
+        grid_size = int(initial_size * res)
+        self.q_table = np.zeros((grid_size, grid_size, 4))  # x,y,q-value -- x,y in m
+        self.origin_x = round(initial_size / 2.0 * res)
+        self.origin_y = round(initial_size / 2.0 * res)
+
         # Add pose array publisher
         self.pose_pub = self.create_publisher(PoseArray, 'optimal_policy', 10)
 
@@ -221,7 +234,7 @@ class QLearningAgent(Node):
     
     def path_to_poses(self, path):
         pose_array = PoseArray()
-        pose_array.header.frame_id = 'map'
+        pose_array.header.frame_id = 'odom'
         pose_array.header.stamp = self.get_clock().now().to_msg()
 
         # Convert path to poses
@@ -231,13 +244,12 @@ class QLearningAgent(Node):
             world_x = x + self.origin_x
             world_y = y + self.origin_y
             
-            # Create pose
             pose = Pose()
             pose.position.x = float(world_x)
             pose.position.y = float(world_y)
             pose.position.z = 0.0
 
-            # Set orientation based on direction to next point or previous point
+            # set orientation 
             if i < len(path) - 1:
                 next_x, next_y = path[i + 1]
                 dx = next_x - x
@@ -247,9 +259,9 @@ class QLearningAgent(Node):
                 dx = x - prev_x
                 dy = y - prev_y
             
-            # Calculate angle based on direction
+            # calculate angle based on direction
             if dx == 0:
-                angle = math.pi/2 if dy < 0 else -math.pi/2
+                angle = math.pi/2 if dy > 0 else -math.pi/2
             else:
                 angle = 0 if dx > 0 else math.pi
                 
@@ -261,9 +273,8 @@ class QLearningAgent(Node):
 
             pose_array.poses.append(pose)
 
-        # Publish the pose array
         self.pose_pub.publish(pose_array)
-        print(f"Published optimal path with {len(pose_array.poses)} poses")
+        # print(f"Published path with {len(pose_array.poses)} poses")
 
 
 def main(args=None):
@@ -283,20 +294,20 @@ def main(args=None):
     executor = rclpy.executors.MultiThreadedExecutor()
     executor.add_node(gm_node)
     executor.add_node(gm_node.planner)
-    executor.add_node(q)  # Add the QLearningAgent node to the executor
+    executor.add_node(q)  # Make sure QLearningAgent is added to executor
     executor_thread = threading.Thread(target=executor.spin, daemon=True)
     executor_thread.start()
 
-    # num_episodes = 2
-    # q.train(num_episodes, gm_node)
+    num_episodes = 10
+    q.train(num_episodes, gm_node)
     
-    # Publish the learned policy
-    # print("\nPublishing optimal policy to RViz2...")
-    # path = q.create_optimal_policy(gm_node)
-    path = [(0,0), (0,1), (0,2), (0,3), (1,3)]
+    # create optimal policy from qtable 
+    print("\nPublishing optimal policy to RViz2...")
+    path = q.create_optimal_policy(gm_node)
+    
+    # publish policy as posearray 
+    print("\nPublishing poses to RViz2...")
     q.path_to_poses(path)
-
-    time.sleep(10)
 
 if __name__ == '__main__':
     main()
