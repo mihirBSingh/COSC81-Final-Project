@@ -53,6 +53,9 @@ DIRECTION_PROBABILITIES = {
     'Stay': [('Stay', 1.0)]
 }
 
+MOVE_DISTANCE_THRESHOLD = 0.1  # How close to center before considering "arrived"
+STATE_MOVE_TIMEOUT = 10.0  
+
 class Grid:
     def __init__(self, occupancy_grid_data, width, height, resolution):
         self.grid = np.reshape(occupancy_grid_data, (height, width))
@@ -129,7 +132,7 @@ class ValueIteration(Node):
         
         # State-based navigation variables
         self.current_pose = None
-        self.current_state = None  # Current (block_r, block_c)
+        self.current_state = (2,2)  # Current (block_r, block_c)
         self.target_state = None   # Target (block_r, block_c) 
         self.robot_policy = None
         self.goal_state = None
@@ -148,6 +151,7 @@ class ValueIteration(Node):
         print(f"Got map: {msg.info.width}x{msg.info.height}, resolution: {msg.info.resolution}")
     
     def odom_callback(self, msg):
+        print("Received odometry update")
         self.current_pose = msg.pose.pose
 
         if self.map is not None and self.map_origin is not None:
@@ -422,6 +426,175 @@ class ValueIteration(Node):
         self.value_pub.publish(marker_array)
         self.get_logger().info(f"Published {len(marker_array.markers)} value cubes")
         
+    def state_based_control_loop(self):
+        if not self.navigation_active or self.current_state is None or self.robot_policy is None:
+            return
+        print("State-based control loop running")
+        # Check if we've reached the goal state
+        if self.current_state == self.goal_state:
+            self.get_logger().info(f"SUCCESS: Reached goal state {self.goal_state}!")
+            self.stop_robot()
+            self.navigation_active = False
+            return
+        
+        # If we're not currently moving between states, decide next move
+        if not self.moving_to_state:
+            self.decide_next_state_move()
+        else:
+            # Continue moving toward target state
+            self.execute_state_movement()
+
+    def decide_next_state_move(self):
+        current_policy_action = self.robot_policy.get(self.current_state, 'Stay')
+        
+        # self.get_logger().info(f"Current state: {self.current_state}, Policy action: {current_policy_action}")
+        
+        if current_policy_action == 'Stay':
+            self.get_logger().info("Policy says Stay - stopping")
+            self.stop_robot()
+            return
+        
+        # Calculate target state based on policy action
+        self.target_state = self.get_next_state(self.current_state, current_policy_action)
+        
+        # Validate target state is different and valid
+        if self.target_state == self.current_state:
+            self.get_logger().warn("Target state same as current state")
+            self.stop_robot()
+            return
+        
+        if not self.is_state_valid(self.target_state):
+            # self.get_logger().error(f"Target state {self.target_state} is invalid!")
+            self.stop_robot()
+            return
+        
+        # Start moving to target state
+        self.get_logger().info(f"Moving from state {self.current_state} to {self.target_state} (action: {current_policy_action})")
+        self.moving_to_state = True
+        self.state_start_time = self.get_clock().now()
+
+    def execute_state_movement(self):
+        if self.current_pose is None:
+            print("No current pose available, cannot execute movement")
+        if self.target_state is None or self.current_pose is None:
+            print("found")
+            return
+        
+        # Get world coordinates of target state center
+        target_x, target_y = self.get_state_center_world(self.target_state[0], self.target_state[1])
+        
+        # Calculate distance and angle to target
+        current_x = self.current_pose.position.x
+        current_y = self.current_pose.position.y
+        
+        dx = target_x - current_x
+        dy = target_y - current_y
+        distance = math.sqrt(dx*dx + dy*dy)
+        target_angle = math.atan2(dy, dx)
+        
+        # Get current robot orientation
+        current_quat = self.current_pose.orientation
+        current_euler = tf_transformations.euler_from_quaternion([
+            current_quat.x, current_quat.y, current_quat.z, current_quat.w
+        ])
+        current_yaw = current_euler[2]
+        
+        # Calculate angle difference
+        angle_diff = target_angle - current_yaw
+        while angle_diff > math.pi:
+            angle_diff -= 2*math.pi
+        while angle_diff < -math.pi:
+            angle_diff += 2*math.pi
+        
+        # Create movement command
+        cmd = Twist()
+        
+        # Check if we've arrived at target state
+        if distance < MOVE_DISTANCE_THRESHOLD:
+            self.get_logger().info(f"Arrived at target state {self.target_state}")
+            self.stop_robot()
+            self.moving_to_state = False
+            self.target_state = None
+            return
+        
+        # Check for timeout
+        # if self.state_start_time is not None:
+        #     elapsed = (self.get_clock().now() - self.state_start_time).nanoseconds / 1e9
+        #     if elapsed > STATE_MOVE_TIMEOUT:
+        #         self.get_logger().warn(f"Timeout moving to state {self.target_state}, stopping")
+        #         self.stop_robot()
+        #         self.moving_to_state = False
+        #         return
+        
+        # Movement control: turn first, then move
+        if abs(angle_diff) > math.pi / 4:
+            # Need to turn toward target
+            cmd.angular.z = self.angular_velocity if angle_diff > 0 else -self.angular_velocity
+            cmd.linear.x = 0.0
+        else:
+            # Move forward toward target
+            cmd.linear.x = self.linear_velocity
+            # Small angular correction
+            cmd.angular.z = 0.3 * angle_diff
+        
+        self.cmd_vel_pub.publish(cmd)
+
+    def is_state_valid(self, state: Tuple[int, int]) -> bool:
+        state_r, state_c = state
+        if state_r < 0 or state_r >= 20 or state_c < 0 or state_c >= 20:
+            return False
+        return self.is_block_valid(state_r, state_c)
+
+    def stop_robot(self):
+        cmd = Twist()
+        cmd.linear.x = 0.0
+        cmd.angular.z = 0.0
+        self.cmd_vel_pub.publish(cmd)
+        
+    def start_state_navigation(self, goal_state: Tuple[int, int]):
+        if self.robot_policy is None:
+            self.get_logger().error("No policy computed yet!")
+            return False
+        
+        if self.current_state is None:
+            self.get_logger().error("Don't know current robot state!")
+            return False
+        
+        self.goal_state = goal_state
+        self.navigation_active = True
+        self.moving_to_state = False
+        
+        self.get_logger().info(f"Starting navigation from state {self.current_state} to goal state {self.goal_state}")
+        return True
+
+    def compute_policy_and_navigate(self, goal_state: Tuple[int, int]):
+        """Compute policy for current position to goal, then start navigation"""
+        if self.current_state is None:
+            self.get_logger().error("Don't know current robot position!")
+            return False
+        
+        # Convert states back to grid coordinates for value iteration
+        start_grid = self.current_state
+        goal_grid = goal_state
+        
+        self.get_logger().info(f"Computing policy from {start_grid} to {goal_grid}")
+        
+        # Run value iteration
+        V, policy = self.value_iteration(start_grid, goal_grid)
+        
+        if policy:
+            self.robot_policy = policy
+            
+            # Publish visualizations
+            self.publish_policy_visualization(policy, V)
+            self.publish_value_visualization(V)
+            
+            # Start state-based navigation
+            return self.start_state_navigation(goal_state)
+        else:
+            self.get_logger().error("Failed to compute policy!")
+            return False
+            
     def spin(self):
         start = (2, 2)  # Block coordinates (0-19)
         goal = (6, 6)   # Block coordinates (0-19)
@@ -440,7 +613,23 @@ class ValueIteration(Node):
             writer.writerow(['State', 'Action'])
             for state, action in policy.items():
                 writer.writerow([str(state), action])
-        print(policy)
+
+        # Set goal state 
+        goal_state = (3, 4)  # State coordinates (0-19, 0-19)
+        
+        self.get_logger().info(f"Goal state: {goal_state}")
+        
+        # Compute policy and start navigation
+        self.current_state = (2, 2)  # Reset to initial state
+        if self.compute_policy_and_navigate(goal_state):
+            self.get_logger().info("State-based navigation started!")
+            
+            # Keep spinning until navigation completes
+            while self.navigation_active and rclpy.ok():
+                self.state_based_control_loop()
+                rclpy.spin_once(self, timeout_sec=0.1)
+        else:
+            self.get_logger().error("Failed to start navigation!")
         
 
 def main(args=None):
