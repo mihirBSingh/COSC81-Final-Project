@@ -19,16 +19,27 @@ from tf2_ros import TransformException
 import tf_transformations
 from rclpy.time import Time
 
-from planning import Plan, Execute
+from planning_rebecca import Plan, Grid
 
-DEFAULT_CMD_VEL_TOPIC = '/cmd_vel'
-DEFAULT_SCAN_TOPIC = '/scan'
+## GAZEBO TOPICS 
+# DEFAULT_CMD_VEL_TOPIC = '/cmd_vel'
+# DEFAULT_SCAN_TOPIC = '/scan'
 
-DEFAULT_MAP_TOPIC = '/map'
-DEFAULT_ODOM_TOPIC = '/odometry/filtered'
+# DEFAULT_MAP_TOPIC = '/map'
+# DEFAULT_ODOM_TOPIC = '/odometry/filtered'
 
-TF_BASE_LINK = 'base_link'
-TF_ODOM = 'odom'
+# TF_BASE_LINK = 'base_link'
+# TF_ODOM = 'odom'
+
+## STAGE TOPICS
+DEFAULT_CMD_VEL_TOPIC = 'cmd_vel'
+DEFAULT_SCAN_TOPIC = 'base_scan'
+
+DEFAULT_MAP_TOPIC = 'map'
+DEFAULT_ODOM_TOPIC = 'odometry/filtered'
+
+TF_BASE_LINK = 'rosbot/base_link'
+TF_ODOM = 'rosbot/odom'
 
 LASER_ROBOT_OFFSET = -math.pi
 STEP = 1 # m 
@@ -46,7 +57,7 @@ class Mover(Node):
         self.cmd_pub = self.create_publisher(Twist, DEFAULT_CMD_VEL_TOPIC, 1)
         self.rate = self.create_rate(10)
         self.tf_buffer = tf2_ros.Buffer()
-        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self, spin_thread=True)
 
         # Workaround not to use roslaunch
         use_sim_time_param = rclpy.parameter.Parameter(
@@ -56,13 +67,13 @@ class Mover(Node):
         )
         self.set_parameters([use_sim_time_param])
         
-    def get_transformation(self, start_frame, target_frame):
+    def get_transformation(self, target_frame, start_frame, time=Time()):
             """Get transformation between two frames."""
             # print(f"   Getting transformation from {start_frame} --> {target_frame}")
             try:
-                while not self.tf_buffer.can_transform(target_frame, start_frame, Time()): 
-                    rclpy.spin_once(self)
-                tf_msg = self.tf_buffer.lookup_transform(target_frame, start_frame, Time())
+                while not self.tf_buffer.can_transform(target_frame, start_frame, time): 
+                    print("waiting for transformation from ", start_frame, " to ", target_frame)
+                tf_msg = self.tf_buffer.lookup_transform(target_frame, start_frame, time)
             except TransformException as ex:
                 self.get_logger().info(
                     f'Could not transform: {ex}')
@@ -90,7 +101,7 @@ class Mover(Node):
 
     # angles in radians
     def rotate(self,angle):
-        print(f"           Rotating {angle} rad, {angle*180/math.pi} degrees")
+        # print(f"           Rotating {angle} rad, {angle*180/math.pi} degrees")
 
         secs = abs(angle) / self.angular_velocity
         duration = Duration(seconds=secs)
@@ -98,7 +109,6 @@ class Mover(Node):
 
         # rotate for certain duration 
         while rclpy.ok():
-            rclpy.spin_once(self)  # Process callbacks
             # Check if the specified duration has elapsed.
             if self.get_clock().now() - start_time >= duration:
                 break
@@ -110,7 +120,7 @@ class Mover(Node):
 
     # distance in m 
     def translate(self,distance): 
-        print(f"           Moving forward {distance}m")
+        # print(f"           Moving forward {distance}m")
         
         secs = abs(distance) / self.linear_velocity
         duration = Duration(seconds=secs)
@@ -118,7 +128,6 @@ class Mover(Node):
 
         # rotate for certain duration 
         while rclpy.ok():
-            rclpy.spin_once(self)  # Process callbacks
             # Check if the specified duration has elapsed.
             if self.get_clock().now() - start_time >= duration:
                 break
@@ -139,21 +148,22 @@ class Mover(Node):
         return  math.sqrt((p[0])**2 + (p[1])**2)
 
     def move_to_point(self,x,y):
-        print(f"           Moving to point: {x}, {y}")
+        # print(f"           Moving to point: {x}, {y}")
         odom_p = np.array([x, y, 0, 1])
-        bl_T2_odom = self.get_transformation(TF_ODOM, TF_BASE_LINK)
+        bl_T2_odom = self.get_transformation(TF_BASE_LINK, TF_ODOM)
         bl_p = bl_T2_odom.dot(odom_p.transpose())
         # print(f"           bl_T2_odom: {bl_T2_odom}")
         # print(f"           Base link point: {bl_p}")
 
         theta = self.get_angle(bl_p[1], bl_p[0])
         dist = self.get_distance(bl_p)
+        # print(f"        Rotating {theta} rad, {theta*180/math.pi} degrees")
 
         self.rotate(theta)
         self.translate(dist)
 
 class GridMapper(Node):
-    def __init__(self, pos_x=0.0, pos_y=0.0, pos_theta=0.0, initial_size=100, goal=(999, 999), res=0.05):
+    def __init__(self, pos_x=0.0, pos_y=0.0, pos_theta=0.0, initial_size=1000, goal=(999, 999), res=0.05):
         super().__init__('grid_mapper')
 
         self.res = res  # m/cell
@@ -164,21 +174,30 @@ class GridMapper(Node):
         self.origin_y = -self.initial_size * self.res / 2.0
         self.width = self.initial_size
         self.height = self.initial_size
+
+         # Workaround not to use roslaunch
+        use_sim_time_param = rclpy.parameter.Parameter(
+            'use_sim_time',
+            rclpy.Parameter.Type.BOOL,
+            USE_SIM_TIME
+        )
+        self.set_parameters([use_sim_time_param])
         
-        self.pos_x = pos_x # m
-        self.pos_y = pos_y # m
+        # m, odom
+        self.pos_x = pos_x 
+        self.pos_y = pos_y 
         self.pos_theta = pos_theta
 
         self.has_pose = True
 
-        # added PA3 planning
-        self.planner = Plan(context=self.context)
-        self.executor = Execute(context=self.context)
-        
         # set up TF2 buffer and listener
         self.tf_buffer = tf2_ros.Buffer()
-        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self,  spin_thread=True)
+
+        # added planning
+        self.planner = Plan(tf_buffer=self.tf_buffer)
         
+
         # set up publishers and subscribers
         self._cmd_pub = self.create_publisher(Twist, DEFAULT_CMD_VEL_TOPIC, 1)
         self.odom_sub = self.create_subscription(Odometry, DEFAULT_ODOM_TOPIC, self.get_curr_pose, 10)
@@ -186,7 +205,7 @@ class GridMapper(Node):
         self.laser_sub = self.create_subscription(LaserScan, DEFAULT_SCAN_TOPIC, self.laser_callback, 10)
         
         # set up qlearning states and obstacles 
-        self.start_state = (pos_x, pos_y)   
+        self.start_state = (pos_x, pos_y)   # odom, m
         self.state = self.start_state
         self.goal = goal
 
@@ -199,41 +218,35 @@ class GridMapper(Node):
 
         self.mover = Mover() 
 
-        print(f"Occupancy Grid Mapper initialized with shape: {self.map.shape} and origin: {self.origin_x}, {self.origin_y}\n")
+        print(f"Occupancy Grid Mapper initialized with shape: {self.map.shape} and origin: {self.origin_x}, {self.origin_y}")
 
     def reset(self):
+        print(f"  [Reset started]")
         self.state = self.start_state
-        # TODO move robot back to start with pathfinding using pa3 planning
 
-        print(f"Resetting to start position.")
+        # update planner map, only if neighbors are not all -1 (indicates laserscan callback not called yet and map not updated)
+        # offset = self.width // 2  # turn 0,0 into 
+        # rate = self.create_rate(10)  # 10Hz
+        # while np.all(self.map[self.state[1] + offset -1:self.state[1]+offset+2, self.state[0] + offset -1:self.state[0]+offset+2] == -1): 
+        #     print(f"    Map not updated, waiting for laserscan callback")
+        #     rate.sleep()  # allow other callbacks to run
 
-        # convert current and start poses to pose format
-        current_pose = self.planner.create_pose(self.pos_x, self.pos_y, 0.0, self.planner.make_quat(0.0))  # with dummy orientation
-        end_coords = self.start_state
+        # print(f"  Map updated, planning path to start")
+        self.planner.set_map(Grid(self.map, self.width, self.height, self.res, (self.origin_x, self.origin_y)))
 
-        path_found = self.planner.bfs(current_pose, end_coords)
+        # plan path to start  
+        self.planner.path_follower(self.start_state[0], self.start_state[1],  "BFS")
 
-        if not path_found:
-            print("No path found to starting point.")
-            return self.state
-
-        print("Waiting for Execute node to process pose sequence...")
-        while not self.executor.done:
-            rclpy.spin_once(self.executor)
-
-        self.executor.execute()
-        self.executor.done = False
-        self.executor.dist = []
-        self.executor.rot = []
-
+        # move to start
         self.state = self.start_state
         self.pos_x, self.pos_y = self.start_state
 
-        print("Reset complete.\n")
+        print("  [Reset completed]")
 
         return self.state
 
     def is_terminal(self, state):
+        # print(f"        State: {state}, Goal: {self.goal}")
         return state in self.obstacles or state == self.goal
     
     def get_next_state(self, state, action):  # m
@@ -252,22 +265,30 @@ class GridMapper(Node):
     
     def compute_reward(self, prev_state, action, type):  
         # Obstacle or goal
-        state_world = self.get_next_state(prev_state, action)  # m 
-        state = self.world_to_grid(state_world[0], state_world[1])  # px
-        if  type == "obstacle":
-            if self.map[state[0], state[1]] == 100:
+        next_state_world = self.get_next_state(prev_state, action)  # m 
+        next_state_px = self.world_to_grid(next_state_world[0], next_state_world[1])  # px
+
+        prev_state_px = self.world_to_grid(prev_state[0], prev_state[1])  # px
+        # print("prev state: ", prev_state)
+        goalx_px, goaly_px = self.world_to_grid(self.goal[0], self.goal[1])
+        # print("goal: ", goalx_px, goaly_px)
+        if type == "obstacle":
+            if self.map[state[1], state[0]] == 100:
                 reward = -10
             elif state == self.goal:
-                reward = -100
+                reward = 10
             else:
                 reward = 0
 
         elif type == "manhattan":
-                # Manhattan distance to goal
-                prev_dist = abs(prev_state[0] - self.goal[0]) + abs(prev_state[1] - self.goal[1])
-                new_dist = abs(state[0] - self.goal[0]) + abs(state[1] - self.goal[1])
-                reward = prev_dist - new_dist
-                return reward
+                if next_state_px == (goalx_px, goaly_px):
+                    reward = 10
+                else:
+                    # Manhattan distance to goal
+                    prev_dist = abs(prev_state_px[0] - goalx_px) + abs(prev_state_px[1] - goaly_px)
+                    new_dist = abs(next_state_px[0] - goalx_px) + abs(next_state_px[1] - goaly_px)
+                    reward = prev_dist - new_dist
+                    # print(prev_dist, new_dist, reward)
         print(f"        Reward: {reward}")
         return reward 
     
@@ -286,7 +307,6 @@ class GridMapper(Node):
         self.pos_x, self.pos_y = next_state
         done = self.is_terminal(next_state)
         self.execute_action(action)
-        rclpy.spin_once(self)  # Process any callbacks after action execution
         return next_state, reward, done
 
     def get_curr_pose(self, msg):
@@ -306,7 +326,6 @@ class GridMapper(Node):
         return 0 <= x < self.width and 0 <= y < self.height
 
     def bresenham(self, x0, y0, x1, y1): # refactored Bresenham from lec
-        print(f"        [Bresenham]")
         dx, dy = abs(x1 - x0), abs(y1 - y0)
         sx, sy = (1 if x0 < x1 else -1), (1 if y0 < y1 else -1)
         err = dx - dy
@@ -353,7 +372,7 @@ class GridMapper(Node):
         self.get_logger().info(f'Map expanded to {self.width}x{self.height}, origin: ({self.origin_x}, {self.origin_y})')
 
     def laser_callback(self, msg):
-        print(f"---> ---> [Laser callback] <--- <---")
+        # print(f"---> ---> [Laser callback] <--- <---")
         if not self.has_pose: 
             return 
         
@@ -362,6 +381,7 @@ class GridMapper(Node):
             self.expand_map(grid_x, grid_y) 
             grid_x, grid_y = self.world_to_grid(self.pos_x, self.pos_y)
         
+        printed = False
         for i, range in enumerate(msg.ranges): # laser scan angle
             if not (msg.range_min <= range <= msg.range_max):
                 continue
@@ -374,27 +394,25 @@ class GridMapper(Node):
             laser_point.point.x = range * math.cos(angle)
             laser_point.point.y = range * math.sin(angle)
             
-            # transform = self.mover.get_transformation('odom', msg.header.frame_id) 
-            if self.tf_buffer.can_transform('odom', msg.header.frame_id, msg.header.stamp): # transform to odom
-                try:
-                    transform = self.tf_buffer.lookup_transform(TF_ODOM, msg.header.frame_id, msg.header.stamp) #msg.header.stamp
-                    point_odom = do_transform_point(laser_point, transform)
-                    world_x = point_odom.point.x
-                    world_y = point_odom.point.y
-                except Exception as e:
+            try:
+                transform = self.tf_buffer.lookup_transform(TF_ODOM, msg.header.frame_id, msg.header.stamp) 
+                point_odom = do_transform_point(laser_point, transform)
+                world_x = point_odom.point.x
+                world_y = point_odom.point.y
+            except Exception as e:
+                if not printed: 
                     self.get_logger().warn(f'Transform failed: {str(e)}')
-                    continue
-            else:
-                print(f"        [Transform failed]")
+                    printed = True
                 continue
             
             end_x, end_y = self.world_to_grid(world_x, world_y) # export to grid
-            print(f"        [end_x, end_y]: {end_x}, {end_y}")
+            # print(f"        [end_x, end_y]: {end_x}, {end_y}")
             if not self.valid_cell(end_x, end_y):
                 self.expand_map(end_x, end_y)
                 end_x, end_y = self.world_to_grid(world_x, world_y)
             self.bresenham(grid_x, grid_y, end_x, end_y) # map update using Bresenham
-        print(f"        [Laser callback complete]")
+
+        # print(f"        [Laser callback complete]")
         self.publish_map()
 
     def publish_map(self):
@@ -402,7 +420,7 @@ class GridMapper(Node):
 
         now = self.get_clock().now().to_msg()
         map_publish_msg.header.stamp = now
-        map_publish_msg.header.frame_id = 'map'
+        map_publish_msg.header.frame_id = TF_ODOM
 
         map_publish_msg.info.resolution = self.res
         map_publish_msg.info.width = self.width
